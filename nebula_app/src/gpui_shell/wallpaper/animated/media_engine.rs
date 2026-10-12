@@ -183,11 +183,11 @@ fn run(path: &std::path::Path, receiver: &mpsc::Receiver<Command>, status: &Stat
                             crate::logging::debug_log(format!("video underlay place {hwnd:#x} {geometry:?}"));
                             let placement = Placement::new(&composition, hwnd)?;
                             if let Some((swap_chain, _)) = &chain {
-                                placement.attach(swap_chain)?;
+                                placement.attach(swap_chain).context("attaching the swap chain")?;
                             }
                             placements.insert(hwnd, placement);
                         }
-                        placements[&hwnd].arrange(geometry)?;
+                        placements[&hwnd].arrange(geometry).context("arranging the video layer")?;
                         dirty = true;
                     },
                     Command::Remove(hwnd) => dirty |= placements.remove(&hwnd).is_some(),
@@ -195,11 +195,8 @@ fn run(path: &std::path::Path, receiver: &mpsc::Receiver<Command>, status: &Stat
                         crate::logging::debug_log(format!("video underlay play={play}"));
                         playing = play;
                         unsafe {
-                            if play {
-                                engine.Play()?;
-                            } else {
-                                engine.Pause()?;
-                            }
+                            if play { engine.Play() } else { engine.Pause() }
+                                .context("changing the playback state")?;
                         }
                     },
                 }
@@ -211,11 +208,13 @@ fn run(path: &std::path::Path, receiver: &mpsc::Receiver<Command>, status: &Stat
             }
             if chain.is_none() && unsafe { engine.HasVideo() }.as_bool() {
                 let (mut width, mut height) = (0, 0);
-                unsafe { engine.GetNativeVideoSize(Some(&mut width), Some(&mut height))? };
+                unsafe { engine.GetNativeVideoSize(Some(&mut width), Some(&mut height)) }
+                    .context("reading the native video size")?;
                 if width > 0 && height > 0 {
-                    let swap_chain = create_swap_chain(&device, width, height)?;
+                    let swap_chain = create_swap_chain(&device, width, height)
+                        .context("creating the composition swap chain")?;
                     for placement in placements.values() {
-                        placement.attach(&swap_chain)?;
+                        placement.attach(&swap_chain).context("attaching the swap chain")?;
                     }
                     crate::logging::debug_log(format!("video underlay swap chain {width}x{height}"));
                     status.width.store(width, Ordering::Release);
@@ -233,17 +232,17 @@ fn run(path: &std::path::Path, receiver: &mpsc::Receiver<Command>, status: &Stat
                 && last_frame != Some(time)
             {
                 last_frame = Some(time);
-                let target: ID3D11Texture2D = unsafe { swap_chain.GetBuffer(0)? };
-                unsafe {
-                    engine.TransferVideoFrame(&target, None, rect, None)?;
-                    swap_chain.Present(0, DXGI_PRESENT(0)).ok()?;
-                }
+                let target: ID3D11Texture2D =
+                    unsafe { swap_chain.GetBuffer(0) }.context("getting the back buffer")?;
+                unsafe { engine.TransferVideoFrame(&target, None, rect, None) }
+                    .context("transferring the video frame")?;
+                unsafe { swap_chain.Present(0, DXGI_PRESENT(0)) }.ok().context("presenting")?;
                 if !status.ready.swap(true, Ordering::AcqRel) {
                     crate::logging::debug_log("video underlay first frame presented");
                 }
             }
             if dirty {
-                unsafe { composition.Commit()? };
+                unsafe { composition.Commit() }.context("committing the composition")?;
             }
             if playing {
                 thread::sleep(FRAME_POLL);
@@ -330,7 +329,8 @@ fn create_swap_chain(device: &ID3D11Device, width: u32, height: u32) -> Result<I
         BufferCount: 2,
         Scaling: DXGI_SCALING_STRETCH,
         SwapEffect: DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL,
-        AlphaMode: DXGI_ALPHA_MODE_IGNORE,
+        // 合成交换链不接受 IGNORE；视频帧本身不透明。
+        AlphaMode: DXGI_ALPHA_MODE_PREMULTIPLIED,
         Flags: 0,
     };
     Ok(unsafe { factory.CreateSwapChainForComposition(device, &desc, None)? })
