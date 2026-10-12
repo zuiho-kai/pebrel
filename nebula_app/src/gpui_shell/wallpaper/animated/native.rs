@@ -5,7 +5,7 @@ use super::super::{
 };
 use crate::renderer::image::wallpaper_rect;
 use gpui::{App, AppContext, AsyncApp, Bounds, Pixels, Task, Window, point, px, size};
-use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+use raw_window_handle::RawWindowHandle;
 use std::time::Duration;
 #[path = "media_engine.rs"]
 mod media_engine;
@@ -162,7 +162,7 @@ fn paint_underlay(
     let Some(underlay) = cx.global_mut::<VisualEffects>().animated.underlay.as_mut() else {
         return false;
     };
-    let hwnd = match HasWindowHandle::window_handle(window).map(|handle| handle.as_raw()) {
+    let hwnd = match raw_window_handle::HasWindowHandle::window_handle(window).map(|handle| handle.as_raw()) {
         Ok(RawWindowHandle::Win32(handle)) => handle.hwnd.get(),
         _ => return false,
     };
