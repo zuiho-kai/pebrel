@@ -1,0 +1,40 @@
+name: Fork Windows build
+
+on:
+  push:
+    branches: [windows-video-underlay]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-windows-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: ${{ github.repository == 'zuiho-kai/pebrel' }}
+    runs-on: windows-2022
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - name: Prepare pinned Windows console runtime
+        shell: pwsh
+        run: ./scripts/prepare-windows-runtime.ps1 -Destination assets/windows/conhost
+      - name: Build release binaries
+        shell: pwsh
+        run: ./scripts/build-windows-product.ps1 -Configuration release -TargetDirectory target
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pebrel-windows-x64
+          compression-level: 6
+          path: |
+            target/release/pebrel.exe
+            target/release/pebrel-hook.exe
+            target/release/conpty.dll
+            target/release/OpenConsole.exe
+          if-no-files-found: error
