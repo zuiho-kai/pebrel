@@ -206,7 +206,12 @@ fn run(path: &std::path::Path, receiver: &mpsc::Receiver<Command>, status: &Stat
                 let (code, extended) = unsafe { (error.GetErrorCode(), error.GetExtendedErrorCode()) };
                 anyhow::bail!("media engine error {code}: {extended:?}");
             }
-            if chain.is_none() && unsafe { engine.HasVideo() }.as_bool() {
+            // 元数据就绪前 HasVideo 可能已为真，但原生尺寸尚不可读。
+            if chain.is_none()
+                && unsafe { engine.GetReadyState() }
+                    >= MF_MEDIA_ENGINE_READY_HAVE_METADATA.0 as u16
+                && unsafe { engine.HasVideo() }.as_bool()
+            {
                 let (mut width, mut height) = (0, 0);
                 unsafe { engine.GetNativeVideoSize(Some(&mut width), Some(&mut height)) }
                     .context("reading the native video size")?;
