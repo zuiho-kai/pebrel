@@ -77,7 +77,9 @@ impl Source {
         let status = Arc::new(Status::default());
         let worker_status = status.clone();
         thread::Builder::new().name("pebrel-video-underlay".into()).spawn(move || {
-            if let Err(error) = run(&path, &receiver, &worker_status) {
+            let result = run(&path, &receiver, &worker_status);
+            crate::logging::debug_log(format!("video underlay worker exited: {result:?}"));
+            if let Err(error) = result {
                 log::warn!("video background underlay failed: {error:#}");
                 worker_status.failed.store(true, Ordering::Release);
             }
@@ -152,6 +154,7 @@ fn run(path: &std::path::Path, receiver: &mpsc::Receiver<Command>, status: &Stat
     let composition: IDCompositionDevice = unsafe { DCompositionCreateDevice(&dxgi)? };
     let engine = create_engine(&device)?;
     unsafe { engine.SetSource(&BSTR::from(path.to_string_lossy().as_ref()))? };
+    crate::logging::debug_log(format!("video underlay engine created for {}", path.display()));
 
     let result = (|| -> Result<()> {
         let mut placements: HashMap<isize, Placement> = HashMap::new();
@@ -177,6 +180,7 @@ fn run(path: &std::path::Path, receiver: &mpsc::Receiver<Command>, status: &Stat
                 match command {
                     Command::Place(hwnd, geometry) => {
                         if !placements.contains_key(&hwnd) {
+                            crate::logging::debug_log(format!("video underlay place {hwnd:#x} {geometry:?}"));
                             let placement = Placement::new(&composition, hwnd)?;
                             if let Some((swap_chain, _)) = &chain {
                                 placement.attach(swap_chain)?;
@@ -188,6 +192,7 @@ fn run(path: &std::path::Path, receiver: &mpsc::Receiver<Command>, status: &Stat
                     },
                     Command::Remove(hwnd) => dirty |= placements.remove(&hwnd).is_some(),
                     Command::Play(play) => {
+                        crate::logging::debug_log(format!("video underlay play={play}"));
                         playing = play;
                         unsafe {
                             if play {
@@ -212,6 +217,7 @@ fn run(path: &std::path::Path, receiver: &mpsc::Receiver<Command>, status: &Stat
                     for placement in placements.values() {
                         placement.attach(&swap_chain)?;
                     }
+                    crate::logging::debug_log(format!("video underlay swap chain {width}x{height}"));
                     status.width.store(width, Ordering::Release);
                     status.height.store(height, Ordering::Release);
                     chain = Some((
@@ -232,7 +238,9 @@ fn run(path: &std::path::Path, receiver: &mpsc::Receiver<Command>, status: &Stat
                     engine.TransferVideoFrame(&target, None, rect, None)?;
                     swap_chain.Present(0, DXGI_PRESENT(0)).ok()?;
                 }
-                status.ready.store(true, Ordering::Release);
+                if !status.ready.swap(true, Ordering::AcqRel) {
+                    crate::logging::debug_log("video underlay first frame presented");
+                }
             }
             if dirty {
                 unsafe { composition.Commit()? };

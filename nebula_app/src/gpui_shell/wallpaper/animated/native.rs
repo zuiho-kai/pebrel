@@ -122,6 +122,7 @@ fn tick_underlay(cx: &mut App) {
         return;
     };
     if underlay.source.failed() {
+        crate::logging::debug_log("video underlay failed; falling back to in-scene playback");
         cx.global_mut::<VisualEffects>().animated.underlay.take();
         restart_playback(kind, cx);
         cx.defer(refresh_surface_opacity);
@@ -143,6 +144,7 @@ fn tick_underlay(cx: &mut App) {
     underlay.source.set_playing(visible && !reduce_motion);
     let ready = underlay.source.ready();
     if ready != underlay.ready {
+        crate::logging::debug_log(format!("video underlay ready={ready} visible={visible}"));
         underlay.ready = ready;
         cx.defer(refresh_surface_opacity);
         cx.refresh_windows();
