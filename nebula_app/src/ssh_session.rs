@@ -32,6 +32,7 @@ mod exec;
 mod forward;
 mod integration;
 mod lifecycle;
+mod remote_runtime;
 mod route;
 mod transcript;
 pub(crate) use forward::{LocalForward, open_local_forward};

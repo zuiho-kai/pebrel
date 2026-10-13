@@ -1371,5 +1371,22 @@
     "save_failed": "效果列表保存失败，请检查设置目录的写入权限后重试。",
     "advanced": "高级效果",
     "advanced_active": "高级效果 · 终端效果已启用"
+  },
+  "remote_sessions": {
+    "state_running": "进行中",
+    "state_waiting_input": "等待输入",
+    "state_attention": "等待确认",
+    "state_finished": "已完成",
+    "state_failed": "失败",
+    "state_idle": "空闲",
+    "disconnected": "已断开",
+    "notice_disconnected": "SSH 已断开，显示的是最后一次读取的内容。重新连上后自动刷新。",
+    "notice_no_session": "这个会话还没有上报 session id，暂时读不到消息。",
+    "notice_read_failed": "读取失败：{error}",
+    "notice_loading": "正在读取…",
+    "earlier_hidden": "更早的消息未显示",
+    "empty": "还没有消息",
+    "you": "你",
+    "rename_hint": "右键重命名"
   }
 }

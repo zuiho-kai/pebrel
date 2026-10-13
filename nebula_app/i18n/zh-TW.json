@@ -1013,5 +1013,22 @@
     "empty": "此目錄為空。",
     "error_retry": "{error}（點選右上角重新讀取）",
     "busy_other": "另一主機正在傳輸：{destination}"
+  },
+  "remote_sessions": {
+    "state_running": "進行中",
+    "state_waiting_input": "等待輸入",
+    "state_attention": "等待確認",
+    "state_finished": "已完成",
+    "state_failed": "失敗",
+    "state_idle": "閒置",
+    "disconnected": "已中斷",
+    "notice_disconnected": "SSH 已中斷，顯示的是最後一次讀取的內容。重新連上後自動重新整理。",
+    "notice_no_session": "這個工作階段尚未回報 session id，暫時讀不到訊息。",
+    "notice_read_failed": "讀取失敗：{error}",
+    "notice_loading": "正在讀取…",
+    "earlier_hidden": "更早的訊息未顯示",
+    "empty": "還沒有訊息",
+    "you": "你",
+    "rename_hint": "按右鍵重新命名"
   }
 }

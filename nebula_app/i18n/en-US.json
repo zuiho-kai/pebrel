@@ -1371,5 +1371,22 @@
     "save_failed": "Could not save the effect list. Check that the settings location is writable, then try again.",
     "advanced": "Advanced effects",
     "advanced_active": "Advanced effects · Terminal effects enabled"
+  },
+  "remote_sessions": {
+    "state_running": "Running",
+    "state_waiting_input": "Waiting for input",
+    "state_attention": "Needs confirmation",
+    "state_finished": "Finished",
+    "state_failed": "Failed",
+    "state_idle": "Idle",
+    "disconnected": "Disconnected",
+    "notice_disconnected": "SSH disconnected. Showing the last page read; it refreshes after reconnecting.",
+    "notice_no_session": "This session has not reported a session id yet, so its messages cannot be read.",
+    "notice_read_failed": "Read failed: {error}",
+    "notice_loading": "Reading…",
+    "earlier_hidden": "Earlier messages are not shown",
+    "empty": "No messages yet",
+    "you": "You",
+    "rename_hint": "Right-click to rename"
   }
 }

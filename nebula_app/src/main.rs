@@ -101,6 +101,7 @@ mod process_tree;
 mod provider_test;
 mod proxy_test;
 mod remote_dirs;
+mod remote_machines;
 mod render_cache;
 #[cfg(feature = "legacy-shell")]
 mod renderer;
@@ -273,6 +274,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         },
         #[cfg(windows)]
         Some(Subcommands::NotifyTest) => std::process::exit(crate::notify::notify_test()),
+        Some(Subcommands::MobileBridge(options)) => {
+            runtime_api::mobile_bridge::run(options.allow_input)?
+        },
         Some(Subcommands::SetupAi(options)) => {
             #[cfg(windows)]
             if let Some(distro) = &options.wsl {

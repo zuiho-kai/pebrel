@@ -321,6 +321,10 @@ pub enum Subcommands {
     /// Install (or --remove) AI hooks plus the Pebrel Runtime Skill for
     /// Codex and Claude Code.
     SetupAi(SetupAiOptions),
+    /// Serve the Runtime bridge on stdin/stdout for a phone or another desktop
+    /// that reached this machine over an authenticated SSH exec channel.
+    #[clap(hide = true)]
+    MobileBridge(MobileBridgeOptions),
     /// SSH with Pebrel shell integration bootstrapped on the remote host, so
     /// tab icons / spinner / cwd track the program running over the connection
     /// (claude, vim, cargo…). All arguments are forwarded to the system `ssh`.
@@ -916,6 +920,14 @@ impl ConfigLanguage {
             Self::EnUs => "en-US",
         }
     }
+}
+
+/// Options for the `mobile-bridge` subcommand.
+#[derive(Args, Debug)]
+pub struct MobileBridgeOptions {
+    /// Accept input methods from the bridge allowlist. Omitted, the channel is view-only.
+    #[clap(long)]
+    pub allow_input: bool,
 }
 
 /// Options for the `setup-ai` subcommand.

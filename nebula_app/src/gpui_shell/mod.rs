@@ -36,6 +36,7 @@ mod molecule_view;
 mod motion;
 pub mod network_settings;
 pub mod prelude;
+pub mod remote_conversation;
 mod scientific_render;
 pub mod session_restore;
 #[cfg(all(test, feature = "gpui-test-support"))]

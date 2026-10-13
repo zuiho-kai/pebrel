@@ -45,6 +45,7 @@ use gpui_component::input::InputEvent;
 use gpui_component::notification::Notification;
 use nebula_split::{DIVIDER_GAP, HIT_SLOP, RemoveOutcome, SplitDirection, SplitNav, SplitTree};
 
+mod active_cwd;
 mod agents;
 mod closing;
 mod command_manager;
@@ -67,6 +68,7 @@ mod quick_jump;
 mod quick_terminal;
 mod recipes;
 mod remote_files;
+mod remote_sessions;
 mod rename;
 #[cfg(test)]
 use rename::apply_cancel_rename;
@@ -626,6 +628,8 @@ pub struct NebulaWorkspace {
     sidebar_collapsed: bool,
     /// 只折叠 TABS 分区，不影响整个左栏；与旧壳分区标题的 chevron 同义。
     tabs_section_collapsed: bool,
+    /// SSH 连到的远端 Pebrel：侧栏每台机器一组，点会话在内容区读消息。
+    remote: remote_sessions::RemoteSessions,
     /// 标签栏布局：默认沿用左侧栏；Top 将同一组 tab 放进标题栏。
     tabs_position: nebula_settings::TabsPositionName,
     density: nebula_settings::DensityName,
@@ -918,6 +922,7 @@ impl NebulaWorkspace {
             settings_restore_side_panel_open: false,
             sidebar_collapsed: false,
             tabs_section_collapsed: false,
+            remote: Default::default(),
             tabs_position: runtime.tabs_position,
             density: runtime.density,
             sidebar_width,
@@ -1722,6 +1727,9 @@ impl NebulaWorkspace {
     }
 
     fn focus_active(&self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.focus_remote(window, cx) {
+            return;
+        }
         if self.settings_open {
             if let Some((view, _)) = self.settings_surface.as_ref() {
                 let focus = view.read(cx).focus_handle(cx);
@@ -1740,29 +1748,6 @@ impl NebulaWorkspace {
             Some(WorkspaceTab::Image { .. }) | None => return,
         };
         window.defer(cx, move |window, cx| window.focus(&focus, cx));
-    }
-
-    /// 聚焦 tab 的**宿主可见** cwd。必须先识别 WSL，再读 `local_cwd()`：Windows
-    /// 会把来宾 `/` 当成当前盘根目录，反过来的顺序会把 WSL `/` 显示成 `D:\`。
-    /// WSL `/mnt/<盘>` 与可达 UNC 仍可供复制/Explorer 等宿主操作使用。
-    ///
-    /// Git 视图不受这里成败影响——它另有来宾直读路径，见 [`Self::active_wsl_cwd`]。
-    fn active_local_cwd(&self, cx: &App) -> Option<std::path::PathBuf> {
-        if let Some(located) = self.active_wsl_cwd(cx) {
-            return crate::shell_detect::wsl_host_cwd(&located);
-        }
-        let view = self.tabs.get(self.active).and_then(WorkspaceTab::focused_view)?;
-        view.read(cx).local_cwd()
-    }
-
-    /// 聚焦 pane 的 WSL 发行版（spawn 快照）+ 来宾目录；不是 WSL 时为 `None`。
-    /// Git 视图拿它在来宾里直接跑 git，不经
-    /// 任何 UNC 映射，所以宿主看不见 WSL 文件系统时依然有效。
-    fn active_wsl_cwd(&self, cx: &App) -> Option<crate::shell_detect::WslCwd> {
-        let view = self.tabs.get(self.active).and_then(WorkspaceTab::focused_view)?.read(cx);
-        let distro = view.wsl_distro()?.to_owned();
-        let guest = crate::shell_detect::wsl_guest_cwd(&view.cwd)?;
-        Some(crate::shell_detect::WslCwd { distro, guest: guest.to_owned() })
     }
 
     /// 抽屉这一帧该跟随的位置。WSL 先分流：只有 `/mnt/<盘>` 映射到宿主盘，

@@ -228,7 +228,7 @@ impl NebulaWorkspace {
         let items = (0..self.tabs.len())
             .filter(|&ix| tab_scroll::index_visible(ix, tabs_scroll, tabs_show))
             .map(|ix| {
-                let active = ix == self.active;
+                let active = ix == self.active && !self.remote_view_shown();
                 let TabPresentation {
                     title,
                     tooltip,
@@ -378,6 +378,11 @@ impl NebulaWorkspace {
                 })
                 .when(!active && dragged, |item| item.text_color(muted).bg(hover_bg))
                 .on_click(cx.listener(move |this, _, window, cx| {
+                    // Clicking the active tab also leaves a remote conversation.
+                    if this.remote_view_shown() {
+                        this.close_remote_view(cx);
+                        this.focus_active(window, cx);
+                    }
                     this.activate_tab(ix, window, cx);
                 }))
                 // 受约束拖拽：按下待命（源下标 + 按点 Y），移动阈值与让位
@@ -765,6 +770,10 @@ impl NebulaWorkspace {
                     ),
             )
             .child(self.render_tabs_section(items, cx));
+        let (remote_sections, remote_running) =
+            self.render_remote_sections(row_w, row_height, label_px, cx);
+        let sidebar = sidebar.children(remote_sections);
+        items_running.set(items_running.get() || remote_running);
         self.spinner_visible.set(items_running.get());
         if items_running.get() {
             self.arm_activity_spinner_frame(window, cx);

@@ -37,6 +37,8 @@ impl Render for NebulaWorkspace {
             self.settings_surface
                 .as_ref()
                 .map(|(view, _)| gpui::IntoElement::into_any_element(view.clone()))
+        } else if let Some(remote) = self.remote_content(cx) {
+            Some(remote)
         } else {
             match self.tabs.get(self.active) {
                 Some(WorkspaceTab::Terminal { .. }) => {

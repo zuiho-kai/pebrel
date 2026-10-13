@@ -198,6 +198,7 @@ pub(super) async fn run<H: SshEventHost>(
         let (_transcript_scope, reader) =
             super::transcript::TranscriptScope::new(&acquired.session);
         event_proxy.ssh_transcript_reader(Some(reader));
+        let _remote_scope = super::remote_runtime::offer(&destination, &acquired.session);
         super::report_stage(Some(&event_proxy), SshStage::Ready);
         let result =
             pump(&mut channel, hook_token, initial_size, &terminal, &event_proxy, &mut input).await;
