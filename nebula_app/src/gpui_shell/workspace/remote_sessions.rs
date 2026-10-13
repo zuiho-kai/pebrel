@@ -1,8 +1,9 @@
 //! Sidebar groups for remote machines reached over SSH, one group per machine.
 //!
 //! A group appears by itself the first time an SSH pane finds a Pebrel on the
-//! other side (`remote_machines`). Clicking a session shows its conversation in
-//! the content area without opening a local tab; any local tab change leaves it.
+//! other side (`remote_machines`). Clicking a session shows its terminal text in
+//! the content area, typed into like a local terminal, without opening a local
+//! tab; any local tab change leaves it.
 //! The group header's `+` starts a new Claude/Codex session on that machine and
 //! opens it as soon as the remote reports it.
 use std::collections::HashSet;

@@ -78,6 +78,8 @@ two seconds with the last revision.
 
 None.
 
+Superseded by `2026-10-14-remote-sessions-terminal-input.md`.
+
 ## Revisit when
 
 Remote input is wanted, Windows hosts need probing, or the Runtime gains a
