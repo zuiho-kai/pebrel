@@ -1,7 +1,7 @@
 name: Fork packages
 
 # Personal fork packages with the native video background. Uses the repository's
-# own packaging scripts; nothing is published.
+# own packaging scripts; each run publishes a prerelease on this fork.
 on:
   push:
     branches: [remote-sessions]
@@ -105,3 +105,27 @@ jobs:
           compression-level: 0
           path: dist/*.dmg
           if-no-files-found: error
+
+  release:
+    if: ${{ github.repository == 'zuiho-kai/pebrel' }}
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish a prerelease with the packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          short="${GITHUB_SHA::7}"
+          tag="fork-${GITHUB_REF_NAME}-${short}"
+          gh release create "$tag" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Pebrel fork ${GITHUB_REF_NAME} (${short})" \
+            --notes "Fork build of \`${GITHUB_REF_NAME}\` at ${GITHUB_SHA} with the native video background. macOS DMG is ad-hoc signed." \
+            --prerelease --latest=false
