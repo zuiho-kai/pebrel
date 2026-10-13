@@ -4,7 +4,7 @@
 //! bridge answered over an already authenticated connection.
 //!
 //! The registry is transport-neutral. `ssh_session::remote_runtime` owns the
-//! links; the GPUI shell only reads projections and asks for conversation pages.
+//! links; the GPUI shell reads projections and sends allowlisted requests.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -209,42 +209,6 @@ pub(crate) async fn request(key: &str, method: &str, params: Value) -> Reply {
         .await
         .map_err(|_| "machine is disconnected".to_owned())?;
     answer.await.map_err(|_| "machine is disconnected".to_owned())?
-}
-
-/// Read a page of one remote conversation. `revision` makes an unchanged
-/// conversation answer `unchanged: true` without resending its messages.
-pub(crate) async fn conversation_read(
-    key: &str,
-    agent: &RemoteAgent,
-    epoch: Option<u64>,
-    revision: Option<String>,
-) -> Reply {
-    let session_id = agent.session_id.clone().ok_or_else(|| "session has no id yet".to_owned())?;
-    let mut params = serde_json::json!({
-        "window_id": agent.window_id,
-        "pane_id": agent.pane_id,
-        "identity": {"kind": agent.kind, "session_id": session_id, "epoch": epoch},
-    });
-    if let Some(revision) = revision {
-        params["revision"] = Value::String(revision);
-    }
-    request(key, "conversation.read", params).await
-}
-
-/// One input to a remote conversation: `conversation.send`, `.choose` or `.key`.
-/// `identity` is the one the last read returned (it carries the epoch every
-/// mutation must name). Input is never retried: an unknown outcome is re-read.
-pub(crate) async fn conversation_input(
-    key: &str,
-    agent: &RemoteAgent,
-    identity: &Value,
-    method: &str,
-    mut params: Value,
-) -> Reply {
-    params["window_id"] = agent.window_id.into();
-    params["pane_id"] = agent.pane_id.into();
-    params["identity"] = identity.clone();
-    request(key, method, params).await
 }
 
 /// Start a new Claude/Codex session in a new tab of the remote Pebrel, using the

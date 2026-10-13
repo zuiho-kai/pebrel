@@ -1373,30 +1373,13 @@
     "advanced_active": "Advanced effects · Terminal effects enabled"
   },
   "remote_sessions": {
-    "state_running": "Running",
-    "state_waiting_input": "Waiting for input",
-    "state_attention": "Needs confirmation",
-    "state_finished": "Finished",
-    "state_failed": "Failed",
-    "state_idle": "Idle",
     "disconnected": "Disconnected",
     "notice_disconnected": "SSH disconnected. Showing the last page read; it refreshes after reconnecting.",
     "notice_read_failed": "Read failed: {error}",
-    "notice_loading": "Reading…",
-    "earlier_hidden": "Earlier messages are not shown",
-    "empty": "No messages yet",
-    "you": "You",
     "rename_hint": "Right-click to rename",
-    "input_placeholder": "Message {agent} (Enter to send, Shift+Enter for a new line)",
-    "input_busy": "The agent is working; you can send once it finishes, or interrupt it.",
-    "input_terminal_only": "The agent is waiting for a terminal action; you can only interrupt it (Esc) here.",
-    "input_failed": "Send failed: {error}",
-    "send": "Send",
-    "interrupt": "Interrupt (Esc)",
     "new_session": "New session",
     "new_claude": "New Claude session",
     "new_codex": "New Codex session",
-    "start_failed": "Could not start the session: {error}",
-    "notice_terminal": "The session has not started yet (for example, Claude is asking whether to trust the folder). This shows the terminal's last lines; answer with the keys below."
+    "start_failed": "Could not start the session: {error}"
   }
 }

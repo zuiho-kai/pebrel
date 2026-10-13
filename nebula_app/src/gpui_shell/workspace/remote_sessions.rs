@@ -8,7 +8,7 @@
 use std::collections::HashSet;
 
 use super::*;
-use crate::gpui_shell::remote_conversation::RemoteConversationView;
+use crate::gpui_shell::remote_terminal::RemoteTerminalView;
 use crate::remote_machines::{self, MachineView, RemoteAgent};
 use crate::runtime_api::RuntimeTaskState;
 use gpui_component::menu::PopupMenuItem;
@@ -16,7 +16,7 @@ use gpui_component::menu::PopupMenuItem;
 #[derive(Default)]
 pub(super) struct RemoteSessions {
     machines: Vec<MachineView>,
-    view: Option<Entity<RemoteConversationView>>,
+    view: Option<Entity<RemoteTerminalView>>,
     /// `(active, tabs.len())` when the view opened; any other local navigation
     /// path that moves `active` returns the content area to the local tab.
     shown_over: (usize, usize),
@@ -75,8 +75,8 @@ impl NebulaWorkspace {
                     .iter()
                     .find(|agent| (agent.window_id, agent.pane_id) == target)
                     .cloned();
-                let (label, connected) = (machine.label.clone(), machine.connected);
-                view.update(cx, |view, cx| view.sync(&label, agent.as_ref(), connected, cx));
+                let connected = machine.connected;
+                view.update(cx, |view, cx| view.sync(agent.as_ref(), connected, cx));
             }
         }
         cx.notify();
@@ -136,15 +136,8 @@ impl NebulaWorkspace {
             view.machine() == key && view.target() == (agent.window_id, agent.pane_id)
         });
         if !same {
-            let label = self
-                .remote
-                .machines
-                .iter()
-                .find(|machine| machine.key == key)
-                .map_or_else(|| key.to_owned(), |machine| machine.label.clone());
             let (key, agent) = (key.to_owned(), agent.clone());
-            self.remote.view =
-                Some(cx.new(|cx| RemoteConversationView::new(key, label, agent, window, cx)));
+            self.remote.view = Some(cx.new(|cx| RemoteTerminalView::new(key, agent, cx)));
         }
         self.remote.shown_over = (self.active, self.tabs.len());
         if let Some(focus) = self.remote_focus(cx) {

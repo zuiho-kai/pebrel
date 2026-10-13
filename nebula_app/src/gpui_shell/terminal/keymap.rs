@@ -261,7 +261,7 @@ fn kitty_sequence(ks: &Keystroke, mode: &TermMode, synthetic: bool) -> Option<Ve
 
 /// These Windows chords must reach DefWindowProc so the existing close guard
 /// and native system menu run. Other modifiers retain their terminal meaning.
-pub(super) fn is_native_window_shortcut(ks: &Keystroke) -> bool {
+pub(crate) fn is_native_window_shortcut(ks: &Keystroke) -> bool {
     let mods = &ks.modifiers;
     crate::platform::Platform::current() == crate::platform::Platform::Windows
         && mods.alt

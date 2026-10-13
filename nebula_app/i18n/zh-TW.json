@@ -1015,30 +1015,13 @@
     "busy_other": "另一主機正在傳輸：{destination}"
   },
   "remote_sessions": {
-    "state_running": "進行中",
-    "state_waiting_input": "等待輸入",
-    "state_attention": "等待確認",
-    "state_finished": "已完成",
-    "state_failed": "失敗",
-    "state_idle": "閒置",
     "disconnected": "已中斷",
     "notice_disconnected": "SSH 已中斷，顯示的是最後一次讀取的內容。重新連上後自動重新整理。",
     "notice_read_failed": "讀取失敗：{error}",
-    "notice_loading": "正在讀取…",
-    "earlier_hidden": "更早的訊息未顯示",
-    "empty": "還沒有訊息",
-    "you": "你",
     "rename_hint": "按右鍵重新命名",
-    "input_placeholder": "傳訊息給 {agent}（Enter 傳送，Shift+Enter 換行）",
-    "input_busy": "對方正在工作，完成後才能傳訊息；可以先中斷。",
-    "input_terminal_only": "對方在等終端機裡的操作，這裡只能中斷（Esc）。",
-    "input_failed": "傳送失敗：{error}",
-    "send": "傳送",
-    "interrupt": "中斷 (Esc)",
     "new_session": "新增工作階段",
     "new_claude": "新增 Claude 工作階段",
     "new_codex": "新增 Codex 工作階段",
-    "start_failed": "新增工作階段失敗：{error}",
-    "notice_terminal": "工作階段還沒開始（例如 Claude 在詢問是否信任資料夾），這裡顯示終端機最後幾行，可以用下方按鍵回答。"
+    "start_failed": "新增工作階段失敗：{error}"
   }
 }
