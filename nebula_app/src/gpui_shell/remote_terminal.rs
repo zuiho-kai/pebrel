@@ -32,6 +32,7 @@ use serde_json::{Value, json};
 use crate::gpui_shell::config::Settings;
 use crate::gpui_shell::prelude::*;
 use crate::gpui_shell::terminal::colors::Palette;
+use crate::gpui_shell::terminal::element;
 use crate::gpui_shell::terminal::{KEY_CONTEXT, TerminalBackTab, TerminalTab};
 use crate::gpui_shell::workspace::{CopySelection, PasteClipboard};
 use crate::i18n::Message;
@@ -619,7 +620,8 @@ impl RemoteTerminalView {
         let Some(settings) = cx.try_global::<Settings>() else { return Vec::new() };
         let palette = &settings.palette;
         let screen = &self.screen;
-        let selection = self.selection.map(ordered);
+        let selection_range = self.selection.map(ordered);
+        let selection = element::selection_fill(palette, element::themed_anchor(palette, cx));
         let mut shown = Vec::with_capacity(screen.rows.len());
         let mut layouts = Vec::with_capacity(screen.rows.len());
         let mut elements = Vec::with_capacity(screen.rows.len());
@@ -643,11 +645,11 @@ impl RemoteTerminalView {
                 let start = text.len();
                 text.push_str(glyph);
                 let mut style = cell_style(cell, palette);
-                let selected = selection.is_some_and(|(from, to)| {
+                let selected = selection_range.is_some_and(|(from, to)| {
                     (absolute, start) >= from && (absolute, text.len()) <= to
                 });
                 if selected {
-                    style.background_color = Some(palette.selection.into());
+                    style.background_color = Some(selection.into());
                     if let Some(color) = palette.selection_foreground {
                         style.color = Some(color.into());
                     }

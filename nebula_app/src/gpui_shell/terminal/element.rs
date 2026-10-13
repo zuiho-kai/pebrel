@@ -503,16 +503,7 @@ impl Element for TerminalElement {
             }
             paint(run.start, run.end, run.color);
         }
-        let selection_fill = if is_default_selection(&theme) {
-            let alpha = if theme_is_light {
-                crate::display::ui::tokens::terminal_feedback::SELECTION_ALPHA_LIGHT
-            } else {
-                crate::display::ui::tokens::terminal_feedback::SELECTION_ALPHA_DARK
-            };
-            rgba_rgb(theme_anchor, alpha)
-        } else {
-            theme.selection
-        };
+        let selection_fill = selection_fill(&theme, (theme_anchor, theme_is_light));
         for run in &snap.selection_runs {
             for visual in math_frame.projected_runs(
                 run.row as usize,
@@ -1768,7 +1759,28 @@ pub(super) fn rgba_rgb(color: crate::display::color::Rgb, alpha: f32) -> Rgba {
     }
 }
 
-fn themed_anchor(palette: &super::colors::Palette, cx: &App) -> (crate::display::color::Rgb, bool) {
+/// The selection overlay of a terminal: the theme's own color, or for the
+/// default one the theme anchor at the light/dark selection alpha. Remote
+/// sessions paint their selection with the same fill.
+pub(crate) fn selection_fill(
+    palette: &super::colors::Palette,
+    (anchor, is_light): (crate::display::color::Rgb, bool),
+) -> Rgba {
+    if !is_default_selection(palette) {
+        return palette.selection;
+    }
+    let alpha = if is_light {
+        crate::display::ui::tokens::terminal_feedback::SELECTION_ALPHA_LIGHT
+    } else {
+        crate::display::ui::tokens::terminal_feedback::SELECTION_ALPHA_DARK
+    };
+    rgba_rgb(anchor, alpha)
+}
+
+pub(crate) fn themed_anchor(
+    palette: &super::colors::Palette,
+    cx: &App,
+) -> (crate::display::color::Rgb, bool) {
     let sk = crate::gpui_shell::theme::resolved_skin(cx);
     // ANSI magenta = index 5；旧壳 `display.colors[NamedColor::Magenta]`。
     let magenta = rgb_from_rgba(palette.ansi[5]);
