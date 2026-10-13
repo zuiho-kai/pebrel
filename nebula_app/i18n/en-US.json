@@ -1380,6 +1380,7 @@
     "new_session": "New session",
     "new_claude": "New Claude session",
     "new_codex": "New Codex session",
-    "start_failed": "Could not start the session: {error}"
+    "start_failed": "Could not start the session: {error}",
+    "paste_too_large": "The clipboard is too large to paste at once (about 38 KB at most)."
   }
 }

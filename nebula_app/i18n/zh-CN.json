@@ -1380,6 +1380,7 @@
     "new_session": "新建会话",
     "new_claude": "新建 Claude 会话",
     "new_codex": "新建 Codex 会话",
-    "start_failed": "新建会话失败：{error}"
+    "start_failed": "新建会话失败：{error}",
+    "paste_too_large": "剪贴板内容太大，一次最多粘贴约 38 KB。"
   }
 }

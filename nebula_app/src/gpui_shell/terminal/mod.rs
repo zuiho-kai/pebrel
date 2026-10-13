@@ -34,7 +34,7 @@ use gpui::{App, KeyBinding};
 
 gpui::actions!(nebula_terminal, [TerminalTab, TerminalBackTab]);
 
-pub(super) const KEY_CONTEXT: &str = "NebulaTerminal";
+pub(crate) const KEY_CONTEXT: &str = "NebulaTerminal";
 
 /// 终端必须先于组件库 Root 接住 Tab；否则同一次按键在补齐写入后还会触发
 /// `focus_next`，表现为光标停闪、终端失焦。设置页不在此 context 内，仍保留

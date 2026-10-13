@@ -397,8 +397,10 @@ impl BridgeSession {
         }
         let mut local = ApiRequest::new(endpoint.token.clone(), request.method, request.params);
         local.id = request.id.clone();
-        let input_reply =
-            matches!(local.method.as_str(), "pane.prompt" | "pane.send_key" | "pane.scroll");
+        let input_reply = matches!(
+            local.method.as_str(),
+            "pane.prompt" | "pane.paste" | "pane.send_key" | "pane.scroll"
+        );
         // This extension belongs to the link, not the resident Runtime API.
         let baseline = if local.method == "pane.read" && local.params["screen"] == true {
             local

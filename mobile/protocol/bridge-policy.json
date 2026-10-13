@@ -17,6 +17,7 @@
   "input": [
     "agent.start",
     "pane.prompt",
+    "pane.paste",
     "pane.send_key",
     "pane.scroll",
     "git.stage",
