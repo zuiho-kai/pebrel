@@ -1387,6 +1387,16 @@
     "earlier_hidden": "更早的消息未显示",
     "empty": "还没有消息",
     "you": "你",
-    "rename_hint": "右键重命名"
+    "rename_hint": "右键重命名",
+    "input_placeholder": "发消息给 {agent}（Enter 发送，Shift+Enter 换行）",
+    "input_busy": "对方正在工作，完成后才能发消息；可以先中断。",
+    "input_terminal_only": "对方在等终端里的操作，这里只能中断（Esc）。",
+    "input_failed": "发送失败：{error}",
+    "send": "发送",
+    "interrupt": "中断 (Esc)",
+    "new_session": "新建会话",
+    "new_claude": "新建 Claude 会话",
+    "new_codex": "新建 Codex 会话",
+    "start_failed": "新建会话失败：{error}"
   }
 }

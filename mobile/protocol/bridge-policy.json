@@ -15,6 +15,7 @@
     "conversation.read"
   ],
   "input": [
+    "agent.start",
     "pane.prompt",
     "pane.send_key",
     "pane.scroll",

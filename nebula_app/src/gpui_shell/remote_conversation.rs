@@ -1,8 +1,11 @@
-//! Read-only view of one AI conversation running in a remote Pebrel.
+//! One AI conversation running in a remote Pebrel: read it and talk to it.
 //!
 //! It shows the remote's own structured conversation (`conversation.read`), not
 //! a mirrored terminal, so the remote window size never matters. Pages are
 //! revision-checked: an unchanged conversation costs one tiny reply per poll.
+//! Input goes through `conversation.send/choose/key` with the identity of the
+//! last read; it is never retried, and reads begun before an input are dropped
+//! so a stale `can_send` cannot reopen the composer.
 
 use std::time::Duration;
 
@@ -10,10 +13,10 @@ use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AppContext as _, Context, Entity, FocusHandle, InteractiveElement as _, IntoElement,
     ParentElement as _, Render, ScrollHandle, SharedString, StatefulInteractiveElement as _,
-    Styled as _, Task, Window, div, px,
+    Styled as _, Subscription, Task, Window, div, px,
 };
 use gpui_component::text::{TextView, TextViewState};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::gpui_shell::prelude::*;
 use crate::i18n::{Message, UiLanguage};
@@ -36,8 +39,52 @@ pub struct RemoteConversationView {
     text: Entity<TextViewState>,
     scroll: ScrollHandle,
     stick_bottom: bool,
+    input: Entity<InputState>,
+    /// From the last applied read: what input the remote accepts right now.
+    live: Live,
+    /// An input is in flight; the composer stays closed until it settles.
+    sending: bool,
+    /// Bumped around every input; a read started under another value is stale.
+    input_seq: u64,
+    input_error: Option<String>,
     _poll: Task<()>,
-    _text_observer: gpui::Subscription,
+    _text_observer: Subscription,
+    _input_events: Subscription,
+}
+
+#[derive(Default)]
+struct Live {
+    identity: Option<Value>,
+    prompt: Option<RemotePrompt>,
+    can_send: bool,
+}
+
+#[derive(Clone)]
+struct RemotePrompt {
+    id: String,
+    text: String,
+    options: Vec<String>,
+}
+
+impl Live {
+    fn from_page(page: &Value) -> Self {
+        let prompt = page["prompt"].as_object().map(|prompt| RemotePrompt {
+            id: prompt.get("id").and_then(Value::as_str).unwrap_or_default().to_owned(),
+            text: prompt.get("text").and_then(Value::as_str).unwrap_or_default().to_owned(),
+            options: prompt
+                .get("options")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|option| option.as_str().map(str::to_owned))
+                .collect(),
+        });
+        Self {
+            identity: page.get("identity").filter(|identity| identity.is_object()).cloned(),
+            prompt: prompt.filter(|prompt| !prompt.id.is_empty()),
+            can_send: page["can_send"] == true,
+        }
+    }
 }
 
 impl RemoteConversationView {
@@ -45,23 +92,34 @@ impl RemoteConversationView {
         machine: String,
         machine_label: String,
         agent: RemoteAgent,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let text = cx.new(|cx| TextViewState::markdown("", cx));
+        let placeholder = super::config::ui_language(cx).format(
+            Message::RemoteSessionsInputPlaceholder,
+            &[("agent", if agent.display_name.is_empty() { "Agent" } else { &agent.display_name })],
+        );
+        let input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .multi_line(true)
+                .auto_grow(1, 8)
+                .submit_on_enter(true)
+                .placeholder(placeholder)
+        });
+        let input_events = cx.subscribe_in(&input, window, |view, _, event, window, cx| {
+            if matches!(event, InputEvent::PressEnter { .. }) {
+                view.submit(window, cx);
+            }
+        });
         // Markdown parses off-thread; follow its result so the view can keep
         // the newest message in sight once the new height is known.
         let text_observer = cx.observe(&text, |_, _, cx| cx.notify());
         let poll = cx.spawn(async move |this, cx| {
             loop {
-                let Ok(request) = this.update(cx, |view, _| {
-                    (view.machine.clone(), view.agent.clone(), view.revision.clone())
-                }) else {
-                    return;
-                };
-                let (machine, agent, revision) = request;
-                let reply =
-                    remote_machines::conversation_read(&machine, &agent, None, revision).await;
-                if this.update(cx, |view, cx| view.apply(reply, cx)).is_err() {
+                let Ok(read) = this.update(cx, |view, _| view.read_request()) else { return };
+                let reply = read.run().await;
+                if this.update(cx, |view, cx| view.apply(read.seq, reply, cx)).is_err() {
                     return;
                 }
                 cx.background_executor().timer(POLL).await;
@@ -79,9 +137,88 @@ impl RemoteConversationView {
             text,
             scroll: ScrollHandle::new(),
             stick_bottom: true,
+            input,
+            live: Live::default(),
+            sending: false,
+            input_seq: 0,
+            input_error: None,
             _poll: poll,
             _text_observer: text_observer,
+            _input_events: input_events,
         }
+    }
+
+    fn read_request(&self) -> Read {
+        Read {
+            machine: self.machine.clone(),
+            agent: self.agent.clone(),
+            revision: self.revision.clone(),
+            seq: self.input_seq,
+        }
+    }
+
+    /// Read again now instead of waiting for the next poll.
+    fn refresh(&self, cx: &mut Context<Self>) {
+        let read = self.read_request();
+        cx.spawn(async move |this, cx| {
+            let reply = read.run().await;
+            let _ = this.update(cx, |view, cx| view.apply(read.seq, reply, cx));
+        })
+        .detach();
+    }
+
+    fn submit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let text = self.input.read(cx).value().trim().to_owned();
+        if text.is_empty() || !self.live.can_send {
+            return;
+        }
+        if self.send_input("conversation.send", json!({ "text": text }), cx) {
+            self.input.update(cx, |input, cx| input.set_value("", window, cx));
+        }
+    }
+
+    fn choose(&mut self, option: usize, cx: &mut Context<Self>) {
+        let Some(prompt) = self.live.prompt.clone() else { return };
+        self.send_input(
+            "conversation.choose",
+            json!({ "prompt_id": prompt.id, "option": option }),
+            cx,
+        );
+    }
+
+    fn interrupt(&mut self, cx: &mut Context<Self>) {
+        self.send_input("conversation.key", json!({ "key": "Esc" }), cx);
+    }
+
+    /// Deliver one input. The composer and options close until a read that
+    /// started after the input settled says what the remote accepts again.
+    fn send_input(&mut self, method: &'static str, params: Value, cx: &mut Context<Self>) -> bool {
+        let Some(identity) = self.live.identity.clone() else { return false };
+        if self.sending || !self.connected {
+            return false;
+        }
+        self.sending = true;
+        self.stick_bottom = true;
+        self.input_error = None;
+        self.input_seq += 1;
+        self.live.can_send = false;
+        self.live.prompt = None;
+        let (machine, agent) = (self.machine.clone(), self.agent.clone());
+        cx.spawn(async move |this, cx| {
+            let reply =
+                remote_machines::conversation_input(&machine, &agent, &identity, method, params)
+                    .await;
+            let _ = this.update(cx, |view, cx| {
+                view.sending = false;
+                view.input_seq += 1;
+                view.input_error = reply.err();
+                view.refresh(cx);
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+        true
     }
 
     pub fn machine(&self) -> &str {
@@ -107,8 +244,11 @@ impl RemoteConversationView {
             && *agent != self.agent
         {
             if agent.session_id != self.agent.session_id {
-                // A new conversation in the same pane must not keep the old page.
+                // A new conversation in the same pane must not keep the old page
+                // nor accept input addressed to the old identity.
                 self.revision = None;
+                self.live = Live::default();
+                self.input_seq += 1;
             }
             self.agent = agent.clone();
             changed = true;
@@ -118,10 +258,14 @@ impl RemoteConversationView {
         }
     }
 
-    fn apply(&mut self, reply: Result<Value, String>, cx: &mut Context<Self>) {
+    fn apply(&mut self, seq: u64, reply: Result<Value, String>, cx: &mut Context<Self>) {
+        if seq != self.input_seq || self.sending {
+            return;
+        }
         match reply {
             Ok(page) => {
                 self.error = None;
+                self.live = Live::from_page(&page);
                 if let Some(revision) = page["revision"].as_str() {
                     self.revision = Some(revision.to_owned());
                 }
@@ -149,6 +293,21 @@ impl RemoteConversationView {
         let max = f32::from(self.scroll.max_offset().y);
         self.stick_bottom = offset >= max - STICK_SLACK;
         cx.notify();
+    }
+}
+
+/// One `conversation.read`, remembering the input sequence it was started under.
+struct Read {
+    machine: String,
+    agent: RemoteAgent,
+    revision: Option<String>,
+    seq: u64,
+}
+
+impl Read {
+    async fn run(&self) -> Result<Value, String> {
+        remote_machines::conversation_read(&self.machine, &self.agent, None, self.revision.clone())
+            .await
     }
 }
 
@@ -327,6 +486,88 @@ impl Render for RemoteConversationView {
                             .child(TextView::new(&self.text).selectable(true)),
                     ),
             )
+            .child(self.render_input(language, cx))
+    }
+}
+
+impl RemoteConversationView {
+    /// The remote's open question (one button per option), the composer, and an
+    /// interrupt while the agent works. Only what the last read allows is live.
+    fn render_input(&self, language: UiLanguage, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let theme = cx.theme();
+        let (muted, border, danger) = (theme.muted_foreground, theme.border, theme.danger);
+        let usable = self.connected && self.live.identity.is_some() && !self.sending;
+        let working = matches!(
+            self.agent.task_state,
+            RuntimeTaskState::Running
+                | RuntimeTaskState::WaitingInput
+                | RuntimeTaskState::Attention
+        );
+        let hint: Option<SharedString> = if let Some(error) = &self.input_error {
+            Some(language.format(Message::RemoteSessionsInputFailed, &[("error", error)]).into())
+        } else if !usable || self.live.can_send || self.live.prompt.is_some() {
+            None
+        } else if working && self.agent.task_state != RuntimeTaskState::Running {
+            Some(language.text(Message::RemoteSessionsInputTerminalOnly).into())
+        } else {
+            Some(language.text(Message::RemoteSessionsInputBusy).into())
+        };
+        let prompt = self.live.prompt.clone().filter(|_| usable);
+        v_flex()
+            .flex_shrink_0()
+            .px_4()
+            .py_2()
+            .gap_2()
+            .border_t_1()
+            .border_color(border)
+            .when_some(prompt, |area, prompt| {
+                area.child(div().text_sm().child(SharedString::from(prompt.text))).child(
+                    h_flex().flex_wrap().gap_2().children(
+                        prompt.options.into_iter().enumerate().map(|(index, option)| {
+                            Button::new(("remote-prompt-option", index))
+                                .label(SharedString::from(option))
+                                .small()
+                                .when(index == 0, |button| button.primary())
+                                .on_click(cx.listener(move |view, _, _, cx| view.choose(index, cx)))
+                        }),
+                    ),
+                )
+            })
+            .when_some(hint, |area, hint| {
+                area.child(
+                    div()
+                        .text_xs()
+                        .text_color(if self.input_error.is_some() { danger } else { muted })
+                        .child(hint),
+                )
+            })
+            .child(
+                h_flex()
+                    .gap_2()
+                    .items_end()
+                    .child(
+                        div().flex_1().min_w_0().child(
+                            Input::new(&self.input).disabled(!(usable && self.live.can_send)),
+                        ),
+                    )
+                    .when(usable && working, |row| {
+                        row.child(
+                            Button::new("remote-interrupt")
+                                .label(language.text(Message::RemoteSessionsInterrupt))
+                                .small()
+                                .on_click(cx.listener(|view, _, _, cx| view.interrupt(cx))),
+                        )
+                    })
+                    .child(
+                        Button::new("remote-send")
+                            .label(language.text(Message::RemoteSessionsSend))
+                            .small()
+                            .primary()
+                            .disabled(!(usable && self.live.can_send))
+                            .on_click(cx.listener(|view, _, window, cx| view.submit(window, cx))),
+                    ),
+            )
+            .into_any_element()
     }
 }
 
@@ -360,5 +601,24 @@ mod tests {
         let markdown = conversation_markdown(&messages, "", false, &labels());
         assert!(markdown.contains("\\`\\`\\`rust \\*x\\* \\<b\\>"), "{markdown}");
         assert!(markdown.starts_with("**Agent**"));
+    }
+
+    #[test]
+    fn a_read_page_decides_what_input_is_live() {
+        let page = json!({
+            "identity": {"kind":"claude","session_id":"s","epoch":3},
+            "can_send": false,
+            "prompt": {"id":"p1","text":"Allow?","options":["Yes","No"],"selected":0,"binary":false},
+        });
+        let live = Live::from_page(&page);
+        assert_eq!(live.identity, Some(json!({"kind":"claude","session_id":"s","epoch":3})));
+        assert!(!live.can_send);
+        let prompt = live.prompt.expect("prompt");
+        assert_eq!((prompt.id.as_str(), prompt.options.len()), ("p1", 2));
+
+        let idle =
+            Live::from_page(&json!({"identity":{"kind":"codex"},"can_send":true,"prompt":null}));
+        assert!(idle.can_send && idle.prompt.is_none());
+        assert!(Live::from_page(&json!({"unchanged": true})).identity.is_none());
     }
 }

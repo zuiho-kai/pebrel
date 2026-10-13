@@ -3,12 +3,15 @@
 //! A group appears by itself the first time an SSH pane finds a Pebrel on the
 //! other side (`remote_machines`). Clicking a session shows its conversation in
 //! the content area without opening a local tab; any local tab change leaves it.
+//! The group header's `+` starts a new Claude/Codex session on that machine and
+//! opens it as soon as the remote reports it.
 use std::collections::HashSet;
 
 use super::*;
 use crate::gpui_shell::remote_conversation::RemoteConversationView;
 use crate::remote_machines::{self, MachineView, RemoteAgent};
 use crate::runtime_api::RuntimeTaskState;
+use gpui_component::menu::PopupMenuItem;
 
 #[derive(Default)]
 pub(super) struct RemoteSessions {
@@ -20,7 +23,18 @@ pub(super) struct RemoteSessions {
     collapsed: HashSet<String>,
     rename: Option<MachineRename>,
     watching: bool,
+    /// A session this window started remotely: open it once the machine lists it.
+    pending_open: Option<PendingOpen>,
 }
+
+struct PendingOpen {
+    key: String,
+    target: (u64, u64),
+    since: std::time::Instant,
+}
+
+/// The remote's hook needs a moment to report a new session; give up after this.
+const PENDING_OPEN_LIMIT: std::time::Duration = std::time::Duration::from_secs(60);
 
 struct MachineRename {
     key: String,
@@ -29,11 +43,14 @@ struct MachineRename {
 }
 
 impl NebulaWorkspace {
-    fn start_remote_machine_watch(cx: &mut Context<Self>) {
+    fn start_remote_machine_watch(window: &mut Window, cx: &mut Context<Self>) {
         let mut changes = remote_machines::changes();
-        cx.spawn(async move |this, cx| {
+        cx.spawn_in(window, async move |this, cx| {
             loop {
-                if this.update(cx, |this, cx| this.refresh_remote_machines(cx)).is_err() {
+                if this
+                    .update_in(cx, |this, window, cx| this.refresh_remote_machines(window, cx))
+                    .is_err()
+                {
                     return;
                 }
                 if changes.changed().await.is_err() {
@@ -44,8 +61,9 @@ impl NebulaWorkspace {
         .detach();
     }
 
-    fn refresh_remote_machines(&mut self, cx: &mut Context<Self>) {
+    fn refresh_remote_machines(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.remote.machines = remote_machines::machines();
+        self.open_pending_remote_session(window, cx);
         if let Some(view) = self.remote.view.clone() {
             let (key, target) = {
                 let view = view.read(cx);
@@ -65,11 +83,15 @@ impl NebulaWorkspace {
     }
 
     /// The remote conversation shown in place of the active local tab, if any.
-    pub(super) fn remote_content(&mut self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+    pub(super) fn remote_content(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::AnyElement> {
         // Each window follows the registry from its first frame on.
         if !self.remote.watching {
             self.remote.watching = true;
-            Self::start_remote_machine_watch(cx);
+            Self::start_remote_machine_watch(window, cx);
         }
         if self.remote.view.is_some() && self.remote.shown_over != (self.active, self.tabs.len()) {
             self.remote.view = None;
@@ -122,13 +144,64 @@ impl NebulaWorkspace {
                 .map_or_else(|| key.to_owned(), |machine| machine.label.clone());
             let (key, agent) = (key.to_owned(), agent.clone());
             self.remote.view =
-                Some(cx.new(|cx| RemoteConversationView::new(key, label, agent, cx)));
+                Some(cx.new(|cx| RemoteConversationView::new(key, label, agent, window, cx)));
         }
         self.remote.shown_over = (self.active, self.tabs.len());
         if let Some(focus) = self.remote_focus(cx) {
             window.defer(cx, move |window, cx| window.focus(&focus, cx));
         }
         cx.notify();
+    }
+
+    fn start_remote_agent(
+        &mut self,
+        key: String,
+        kind: &'static str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.spawn_in(window, async move |this, cx| {
+            let started = remote_machines::start_agent(&key, kind).await;
+            let _ = this.update_in(cx, |this, window, cx| match started {
+                Ok(target) => {
+                    let since = std::time::Instant::now();
+                    this.remote.pending_open = Some(PendingOpen { key, target, since });
+                    this.open_pending_remote_session(window, cx);
+                },
+                Err(error) => {
+                    let message = crate::gpui_shell::config::ui_language(cx).format(
+                        crate::i18n::Message::RemoteSessionsStartFailed,
+                        &[("error", &error)],
+                    );
+                    let notification = gpui_component::notification::Notification::error(message);
+                    crate::gpui_shell::toast::push_notification(window, cx, notification, None);
+                },
+            });
+        })
+        .detach();
+    }
+
+    /// Open the session started by `start_remote_agent` once its pane is listed
+    /// with a conversation id. A lost link or a slow hook drops the wait.
+    fn open_pending_remote_session(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(pending) = self.remote.pending_open.as_ref() else { return };
+        let machine = self.remote.machines.iter().find(|machine| machine.key == pending.key);
+        if machine.is_none_or(|machine| !machine.connected)
+            || pending.since.elapsed() > PENDING_OPEN_LIMIT
+        {
+            self.remote.pending_open = None;
+            return;
+        }
+        let agent = machine.and_then(|machine| {
+            machine.agents.iter().find(|agent| {
+                (agent.window_id, agent.pane_id) == pending.target && agent.session_id.is_some()
+            })
+        });
+        if let Some(agent) = agent.cloned() {
+            let key = pending.key.clone();
+            self.remote.pending_open = None;
+            self.open_remote_session(&key, &agent, window, cx);
+        }
     }
 
     fn toggle_remote_machine(&mut self, key: &str, cx: &mut Context<Self>) {
@@ -282,6 +355,36 @@ impl NebulaWorkspace {
                         .text_color(faint)
                         .child(SharedString::from(machine.agents.len().to_string())),
                 )
+                .child(div().flex_1())
+                .when(machine.connected, |row| {
+                    let owner = cx.entity().downgrade();
+                    let start_key = machine.key.clone();
+                    row.child(
+                        Button::new(("remote-machine-new", machine_ix))
+                            .icon(Icon::new(IconName::Plus).xsmall())
+                            .ghost()
+                            .xsmall()
+                            .mr_1()
+                            .tooltip(language.text(crate::i18n::Message::RemoteSessionsNewSession))
+                            .dropdown_menu(move |menu, _, _| {
+                                ["claude", "codex"].into_iter().fold(menu, |menu, kind| {
+                                    let (owner, key) = (owner.clone(), start_key.clone());
+                                    let label = match kind {
+                                        "claude" => crate::i18n::Message::RemoteSessionsNewClaude,
+                                        _ => crate::i18n::Message::RemoteSessionsNewCodex,
+                                    };
+                                    menu.item(PopupMenuItem::new(language.text(label)).on_click(
+                                        move |_, window, cx| {
+                                            let key = key.clone();
+                                            let _ = owner.update(cx, |this, cx| {
+                                                this.start_remote_agent(key, kind, window, cx)
+                                            });
+                                        },
+                                    ))
+                                })
+                            }),
+                    )
+                })
                 .when(!machine.connected, |row| {
                     row.child(
                         div()

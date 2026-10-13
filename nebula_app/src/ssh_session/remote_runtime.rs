@@ -2,9 +2,10 @@
 //!
 //! After a shell is ready, the pane offers its connection to one holder task.
 //! The holder opens a separate exec channel that runs the remote
-//! `pebrel mobile-bridge` (view-only) and feeds `remote_machines`. Several panes
-//! to the same destination share one link; when the owner pane closes, another
-//! live pane takes over. Nothing reauthenticates or reaches the connection pool.
+//! `pebrel mobile-bridge --allow-input` and feeds `remote_machines`. SSH
+//! authentication is the admission rule; the bridge allowlist bounds what it
+//! may do. Several panes to the same destination share one link; when the
+//! owner pane closes, another live pane takes over. Nothing reauthenticates or reaches the connection pool.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
@@ -25,7 +26,7 @@ const PROBE: &str = "sh -c 'for p in \"$(command -v pebrel 2>/dev/null)\" \
 /Applications/Pebrel.app/Contents/MacOS/pebrel \"$HOME/.local/bin/pebrel\" \
 /usr/local/bin/pebrel /usr/bin/pebrel; do \
 if [ -n \"$p\" ] && [ -x \"$p\" ] && \"$p\" help mobile-bridge >/dev/null 2>&1; then \
-exec \"$p\" mobile-bridge; fi; done; exit 127'";
+exec \"$p\" mobile-bridge --allow-input; fi; done; exit 127'";
 
 const READY_BUDGET: Duration = Duration::from_secs(10);
 const RETRY_DELAY: Duration = Duration::from_secs(5);
@@ -253,7 +254,7 @@ mod tests {
     #[test]
     fn probe_stays_inside_one_single_quoted_posix_script() {
         assert_eq!(PROBE.matches('\'').count(), 2);
-        assert!(PROBE.contains("mobile-bridge; fi"));
-        assert!(!PROBE.contains("--allow-input"), "remote sessions are view-only");
+        // SSH authentication is the admission rule, so the link may write.
+        assert!(PROBE.contains("mobile-bridge --allow-input; fi"));
     }
 }

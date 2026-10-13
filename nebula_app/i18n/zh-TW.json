@@ -1029,6 +1029,16 @@
     "earlier_hidden": "更早的訊息未顯示",
     "empty": "還沒有訊息",
     "you": "你",
-    "rename_hint": "按右鍵重新命名"
+    "rename_hint": "按右鍵重新命名",
+    "input_placeholder": "傳訊息給 {agent}（Enter 傳送，Shift+Enter 換行）",
+    "input_busy": "對方正在工作，完成後才能傳訊息；可以先中斷。",
+    "input_terminal_only": "對方在等終端機裡的操作，這裡只能中斷（Esc）。",
+    "input_failed": "傳送失敗：{error}",
+    "send": "傳送",
+    "interrupt": "中斷 (Esc)",
+    "new_session": "新增工作階段",
+    "new_claude": "新增 Claude 工作階段",
+    "new_codex": "新增 Codex 工作階段",
+    "start_failed": "新增工作階段失敗：{error}"
   }
 }

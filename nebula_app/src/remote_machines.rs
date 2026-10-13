@@ -231,6 +231,49 @@ pub(crate) async fn conversation_read(
     request(key, "conversation.read", params).await
 }
 
+/// One input to a remote conversation: `conversation.send`, `.choose` or `.key`.
+/// `identity` is the one the last read returned (it carries the epoch every
+/// mutation must name). Input is never retried: an unknown outcome is re-read.
+pub(crate) async fn conversation_input(
+    key: &str,
+    agent: &RemoteAgent,
+    identity: &Value,
+    method: &str,
+    mut params: Value,
+) -> Reply {
+    params["window_id"] = agent.window_id.into();
+    params["pane_id"] = agent.pane_id.into();
+    params["identity"] = identity.clone();
+    request(key, method, params).await
+}
+
+/// Start a new Claude/Codex session in a new tab of the remote Pebrel, using the
+/// remote's own verified launch command. Returns its `(window_id, pane_id)`.
+pub(crate) async fn start_agent(key: &str, kind: &str) -> Result<(u64, u64), String> {
+    let stamp = chrono::Local::now().format("%H%M%S");
+    let mut last = String::new();
+    // Agent names are unique per remote runtime; a clash only needs another suffix.
+    for attempt in 0..3 {
+        let name = match attempt {
+            0 => format!("{kind}-{stamp}"),
+            n => format!("{kind}-{stamp}-{n}"),
+        };
+        match request(key, "agent.start", serde_json::json!({"name": name, "kind": kind})).await {
+            Ok(result) => {
+                return started_target(&result).ok_or_else(|| "bad agent.start reply".into());
+            },
+            Err(error) if error.contains("already") => last = error,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(last)
+}
+
+fn started_target(result: &Value) -> Option<(u64, u64)> {
+    let action = result.get("action").unwrap_or(result);
+    Some((action["window_id"].as_u64()?, action["pane_id"].as_u64()?))
+}
+
 fn agents_from_snapshot(snapshot: &Value) -> Vec<RemoteAgent> {
     let mut agents = Vec::new();
     for window in snapshot["windows"].as_array().into_iter().flatten() {
@@ -279,6 +322,14 @@ mod tests {
         assert_eq!(agents[0].title, "港区");
         assert_eq!(agents[0].task_state, RuntimeTaskState::Running);
         assert_eq!(agents[0].session_id.as_deref(), Some("s1"));
+    }
+
+    #[test]
+    fn started_agent_target_comes_from_the_runtime_action() {
+        let reply = json!({"action":{"window_id":2,"pane_id":9,"agent":{}},"snapshot":{}});
+        assert_eq!(started_target(&reply), Some((2, 9)));
+        assert_eq!(started_target(&json!({"window_id":1,"pane_id":4})), Some((1, 4)));
+        assert_eq!(started_target(&json!({"action":{"window_id":1}})), None);
     }
 
     #[test]

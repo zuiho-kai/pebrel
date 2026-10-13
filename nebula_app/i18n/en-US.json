@@ -1387,6 +1387,16 @@
     "earlier_hidden": "Earlier messages are not shown",
     "empty": "No messages yet",
     "you": "You",
-    "rename_hint": "Right-click to rename"
+    "rename_hint": "Right-click to rename",
+    "input_placeholder": "Message {agent} (Enter to send, Shift+Enter for a new line)",
+    "input_busy": "The agent is working; you can send once it finishes, or interrupt it.",
+    "input_terminal_only": "The agent is waiting for a terminal action; you can only interrupt it (Esc) here.",
+    "input_failed": "Send failed: {error}",
+    "send": "Send",
+    "interrupt": "Interrupt (Esc)",
+    "new_session": "New session",
+    "new_claude": "New Claude session",
+    "new_codex": "New Codex session",
+    "start_failed": "Could not start the session: {error}"
   }
 }
