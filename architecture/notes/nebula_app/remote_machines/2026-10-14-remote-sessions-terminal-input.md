@@ -36,7 +36,9 @@ only admission rule. `agent.start` joins the bridge input allowlist.
 `pane.read` (`screen`, `screen_viewport`, `screen_since`) every 250 ms and paints
 the grid with the local terminal font and palette: default foreground and
 indexed colors resolve in the local theme, true-color cells keep their RGB, and
-default-background cells stay transparent. Key handling follows the local
+default-background cells stay transparent. The grid keeps the remote pane's
+columns and rows; the font size is scaled from the local one so the whole grid
+fits the view, growing or shrinking with the local window. Key handling follows the local
 terminal's pass-through rules; control keys go out as `pane.send_key`, committed
 IME text as one `pane.prompt` line. Inputs are sent one at a time in order and
 never retried.
@@ -55,9 +57,13 @@ Codex and opens the new pane as soon as the machine lists it.
 
 ## Consequences
 
-- The grid has the remote pane's columns and rows; a narrower local view clips.
-- No scrollback, selection or copy in the remote view yet.
-- Multi-line paste arrives as one line because `pane.prompt` rejects controls.
+- Text size follows the ratio between the local view and the remote grid, not
+  the local font setting; a much smaller view gives small text.
+- Scrollback exists only when the remote program keeps it in the terminal.
+  Claude Code's fullscreen renderer keeps none, so the wheel is forwarded to it
+  (`pane.scroll`) and it repaints its own history, as it does locally.
+- Selection and copy are local; paste goes as `pane.paste` (bracketed), or as a
+  `pane.prompt` line when the remote program has bracketed paste off.
 - Adding `agent.start` to the shared policy also grants it to mobile clients.
 
 ## Validation

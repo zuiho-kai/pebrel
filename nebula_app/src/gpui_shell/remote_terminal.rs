@@ -7,8 +7,9 @@
 //! as `pane.scroll` when the remote program owns the wheel.
 //!
 //! Font, colors and background are this machine's; a default-background cell
-//! stays transparent like a local terminal cell, and rows wrap at the local
-//! width instead of being clipped. Selection is local and anchored to absolute
+//! stays transparent like a local terminal cell. The remote grid keeps its own
+//! columns and rows; the font is scaled so the whole grid fits the view, larger
+//! or smaller than the local terminal font. Selection is local and anchored to absolute
 //! rows. Typing goes back in order as `pane.prompt` (text, never submitted),
 //! `pane.send_key` (named keys) and `pane.paste` (clipboard blocks). The view
 //! uses the local terminal's key context, so copy/paste bindings are shared.
@@ -24,8 +25,8 @@ use gpui::{
     App, Bounds, ClipboardItem, Context, ElementInputHandler, EntityInputHandler, FocusHandle,
     FontStyle, FontWeight, HighlightStyle, InteractiveElement as _, IntoElement, KeyDownEvent,
     MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement as _, Pixels, Point, Render, Rgba,
-    ScrollWheelEvent, SharedString, StrikethroughStyle, Styled as _, StyledText, Task, TextLayout,
-    UTF16Selection, UnderlineStyle, Window, canvas, div, px,
+    ScrollWheelEvent, SharedString, Size, StrikethroughStyle, Styled as _, StyledText, Task,
+    TextLayout, TextRun, UTF16Selection, UnderlineStyle, Window, canvas, div, px,
 };
 use serde_json::{Value, json};
 
@@ -46,6 +47,9 @@ const DEFAULT_BG: i32 = -258;
 const FIRST_ROWS: usize = 200;
 /// Line height relative to the font size, shared by layout and hit testing.
 const LINE_SCALE: f32 = 1.3;
+/// Bounds of the fitted font size, in pixels.
+const MIN_FONT: f32 = 6.0;
+const MAX_FONT: f32 = 40.0;
 /// The bridge refuses requests above 40 KiB; keep room for the envelope.
 const MAX_INPUT_BYTES: usize = 38 * 1024;
 
@@ -72,6 +76,9 @@ pub struct RemoteTerminalView {
     painted: Rc<RefCell<Vec<Option<Bounds<Pixels>>>>>,
     /// Displayed row and byte of the remote cursor, for the IME window.
     cursor_at: Option<(usize, usize)>,
+    /// Size of the text area as last painted, and the font size fitted to it.
+    area: Rc<RefCell<Option<Size<Pixels>>>>,
+    font_px: f32,
     _poll: Task<()>,
 }
 
@@ -89,6 +96,8 @@ struct Input {
 #[derive(Default)]
 struct Screen {
     rows: Vec<Vec<Cell>>,
+    /// Width of the remote grid in cells.
+    columns: usize,
     /// Rows the remote soft-wrapped into the next one; copy joins them.
     wrapped: Vec<bool>,
     /// `(row, column)` within `rows` when the remote cursor is visible there.
@@ -139,6 +148,9 @@ impl Screen {
     }
 
     fn apply_meta(&mut self, screen: &Value) {
+        if let Some(columns) = screen["columns"].as_u64() {
+            self.columns = columns as usize;
+        }
         if let Some(wrapped) = screen["wrapped"].as_array() {
             self.wrapped = wrapped.iter().map(|flag| flag == true).collect();
         }
@@ -269,6 +281,25 @@ fn prompt_text(text: &str) -> Option<String> {
     (!line.is_empty()).then_some(line)
 }
 
+/// The font size at which a `columns` x `rows` grid fills `area`, given the
+/// cell advance per pixel of font size. Before the first paint or the first
+/// screen the local size stays.
+fn fitted_font(
+    base: f32,
+    advance: f32,
+    columns: usize,
+    rows: usize,
+    area: Option<Size<Pixels>>,
+) -> f32 {
+    let Some(area) = area.filter(|_| columns > 0 && rows > 0 && advance > 0.0) else {
+        return base;
+    };
+    let by_width = area.width.as_f32() / (columns as f32 * advance);
+    let by_height = area.height.as_f32() / (rows as f32 * LINE_SCALE);
+    // Round down to a quarter pixel so shaping never needs a wrap.
+    ((by_width.min(by_height) * 4.0).floor() / 4.0).clamp(MIN_FONT, MAX_FONT)
+}
+
 fn ordered((a, b): (TextPos, TextPos)) -> (TextPos, TextPos) {
     if a <= b { (a, b) } else { (b, a) }
 }
@@ -314,6 +345,8 @@ impl RemoteTerminalView {
             layouts: Vec::new(),
             painted: Rc::default(),
             cursor_at: None,
+            area: Rc::default(),
+            font_px: 15.0,
             _poll: poll,
         }
     }
@@ -391,8 +424,7 @@ impl RemoteTerminalView {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let size = cx.try_global::<Settings>().map_or(15.0, |settings| settings.font_size_px);
-        let line = px(size * LINE_SCALE);
+        let line = px(self.font_px * LINE_SCALE);
         let delta = event.delta.pixel_delta(line).y / line + self.wheel_rest;
         let rows = delta.trunc();
         self.wheel_rest = delta - rows;
@@ -671,7 +703,8 @@ impl RemoteTerminalView {
                     .relative()
                     .w_full()
                     .flex_shrink_0()
-                    .min_h(px(settings.font_size_px * LINE_SCALE))
+                    .min_h(px(self.font_px * LINE_SCALE))
+                    .whitespace_nowrap()
                     .child(styled)
                     .child(
                         // Prepainted after the text, so its layout is measured.
@@ -767,7 +800,7 @@ impl EntityInputHandler for RemoteTerminalView {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
-        let line = px(cx.try_global::<Settings>().map_or(15.0, |s| s.font_size_px) * LINE_SCALE);
+        let line = px(self.font_px * LINE_SCALE);
         let origin = self
             .cursor_at
             .filter(|(row, _)| self.painted.borrow().get(*row).is_some_and(Option::is_some))
@@ -787,12 +820,35 @@ impl EntityInputHandler for RemoteTerminalView {
 }
 
 impl Render for RemoteTerminalView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let language = super::config::ui_language(cx);
-        let (family, size) = cx
+        let (family, base) = cx
             .try_global::<Settings>()
             .map(|settings| (settings.font_family.clone(), settings.font_size_px))
             .unwrap_or_else(|| ("monospace".to_owned(), 15.0));
+        let family = SharedString::from(family);
+        let sample = window.text_system().shape_line(
+            SharedString::new_static("M"),
+            px(base),
+            &[TextRun {
+                len: 1,
+                font: gpui::font(family.clone()),
+                color: Default::default(),
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            }],
+            None,
+        );
+        let rows = match self.screen.live_rows {
+            0 => self.screen.rows.len(),
+            rows => rows,
+        };
+        let advance = sample.width.as_f32() / base;
+        let area = *self.area.borrow();
+        self.font_px = fitted_font(base, advance, self.screen.columns, rows, area);
+        let size = self.font_px;
+        let area = self.area.clone();
         let muted = cx.theme().muted_foreground;
         let notice: Option<SharedString> = if !self.connected {
             Some(language.text(Message::RemoteSessionsNoticeDisconnected).into())
@@ -824,7 +880,7 @@ impl Render for RemoteTerminalView {
             .overflow_hidden()
             .px_2()
             .py_1()
-            .font_family(SharedString::from(family))
+            .font_family(family)
             .text_size(px(size))
             .line_height(px(size * LINE_SCALE))
             .when_some(notice, |root, notice| {
@@ -841,7 +897,12 @@ impl Render for RemoteTerminalView {
                     .overflow_hidden()
                     .child(
                         canvas(
-                            |_, _, _| {},
+                            move |bounds, window, _| {
+                                // A new size refits the font on the next frame.
+                                if area.replace(Some(bounds.size)) != Some(bounds.size) {
+                                    window.refresh();
+                                }
+                            },
                             move |bounds, _, window, cx| {
                                 window.handle_input(
                                     &focus,
@@ -905,6 +966,18 @@ mod tests {
         assert_eq!(local_color(DEFAULT_BG, &palette), None);
         assert_eq!(local_color(0x336699, &palette), Some(rgba(0x336699)));
         assert_eq!(local_color(-2, &palette), Some(palette.ansi[1]));
+    }
+
+    #[test]
+    fn the_font_scales_so_the_whole_remote_grid_fits() {
+        let area = |w: f32, h: f32| Some(gpui::size(px(w), px(h)));
+        // 110 x 28 cells at 0.6 advance: width allows 15, height allows ~16.5.
+        assert_eq!(fitted_font(13.0, 0.6, 110, 28, area(990.0, 600.0)), 15.0);
+        assert_eq!(fitted_font(13.0, 0.6, 110, 28, area(495.0, 600.0)), 7.5);
+        assert_eq!(fitted_font(13.0, 0.6, 110, 28, area(3000.0, 182.0)), 5.0_f32.max(MIN_FONT));
+        assert_eq!(fitted_font(13.0, 0.6, 110, 28, area(9000.0, 9000.0)), MAX_FONT);
+        assert_eq!(fitted_font(13.0, 0.6, 0, 28, area(990.0, 600.0)), 13.0);
+        assert_eq!(fitted_font(13.0, 0.6, 110, 28, None), 13.0);
     }
 
     #[test]
