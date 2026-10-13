@@ -1023,7 +1023,6 @@
     "state_idle": "閒置",
     "disconnected": "已中斷",
     "notice_disconnected": "SSH 已中斷，顯示的是最後一次讀取的內容。重新連上後自動重新整理。",
-    "notice_no_session": "這個工作階段尚未回報 session id，暫時讀不到訊息。",
     "notice_read_failed": "讀取失敗：{error}",
     "notice_loading": "正在讀取…",
     "earlier_hidden": "更早的訊息未顯示",
@@ -1039,6 +1038,7 @@
     "new_session": "新增工作階段",
     "new_claude": "新增 Claude 工作階段",
     "new_codex": "新增 Codex 工作階段",
-    "start_failed": "新增工作階段失敗：{error}"
+    "start_failed": "新增工作階段失敗：{error}",
+    "notice_terminal": "工作階段還沒開始（例如 Claude 在詢問是否信任資料夾），這裡顯示終端機最後幾行，可以用下方按鍵回答。"
   }
 }

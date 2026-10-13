@@ -1381,7 +1381,6 @@
     "state_idle": "空闲",
     "disconnected": "已断开",
     "notice_disconnected": "SSH 已断开，显示的是最后一次读取的内容。重新连上后自动刷新。",
-    "notice_no_session": "这个会话还没有上报 session id，暂时读不到消息。",
     "notice_read_failed": "读取失败：{error}",
     "notice_loading": "正在读取…",
     "earlier_hidden": "更早的消息未显示",
@@ -1397,6 +1396,7 @@
     "new_session": "新建会话",
     "new_claude": "新建 Claude 会话",
     "new_codex": "新建 Codex 会话",
-    "start_failed": "新建会话失败：{error}"
+    "start_failed": "新建会话失败：{error}",
+    "notice_terminal": "会话还没开始（例如 Claude 在问是否信任文件夹），这里显示终端最后几行，可以用下面的按键回答。"
   }
 }

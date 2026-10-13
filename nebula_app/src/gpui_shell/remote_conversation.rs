@@ -6,6 +6,11 @@
 //! Input goes through `conversation.send/choose/key` with the identity of the
 //! last read; it is never retried, and reads begun before an input are dropped
 //! so a stale `can_send` cannot reopen the composer.
+//!
+//! Until the agent reports its conversation id (for example while Claude asks
+//! whether to trust the folder), there is no conversation to read. The view then
+//! shows the pane's plain-text tail (`pane.read`) and offers the few keys such
+//! startup questions need (`pane.send_key`), as the mobile terminal view does.
 
 use std::time::Duration;
 
@@ -24,6 +29,11 @@ use crate::remote_machines::{self, RemoteAgent};
 use crate::runtime_api::RuntimeTaskState;
 
 const POLL: Duration = Duration::from_secs(2);
+/// Terminal tail shown before the agent has a conversation to read.
+const TERMINAL_LINES: usize = 40;
+/// Keys offered in terminal mode, as `pane.send_key` names with their labels.
+const TERMINAL_KEYS: [(&str, &str); 4] =
+    [("up", "↑"), ("down", "↓"), ("enter", "Enter"), ("escape", "Esc")];
 /// Distance from the end that still counts as "reading the latest message".
 const STICK_SLACK: f32 = 48.0;
 
@@ -186,6 +196,31 @@ impl RemoteConversationView {
         );
     }
 
+    /// Terminal mode only: one control key straight to the remote pane.
+    fn send_terminal_key(&mut self, key: &'static str, cx: &mut Context<Self>) {
+        if self.sending || !self.connected {
+            return;
+        }
+        self.sending = true;
+        self.input_error = None;
+        self.input_seq += 1;
+        let (machine, agent) = (self.machine.clone(), self.agent.clone());
+        cx.spawn(async move |this, cx| {
+            let params =
+                json!({"window_id": agent.window_id, "pane_id": agent.pane_id, "key": key});
+            let reply = remote_machines::request(&machine, "pane.send_key", params).await;
+            let _ = this.update(cx, |view, cx| {
+                view.sending = false;
+                view.input_seq += 1;
+                view.input_error = reply.err();
+                view.refresh(cx);
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
     fn interrupt(&mut self, cx: &mut Context<Self>) {
         self.send_input("conversation.key", json!({ "key": "Esc" }), cx);
     }
@@ -263,6 +298,14 @@ impl RemoteConversationView {
             return;
         }
         match reply {
+            Ok(page) if self.agent.session_id.is_none() => {
+                self.error = None;
+                self.live = Live::default();
+                let tail = page["text"].as_str().unwrap_or_default().trim_end();
+                let markdown = format!("```text\n{}\n```", tail.replace("```", "`\u{200b}``"));
+                self.text.update(cx, |text, cx| text.set_text(&markdown, cx));
+                self.loaded = true;
+            },
             Ok(page) => {
                 self.error = None;
                 self.live = Live::from_page(&page);
@@ -306,6 +349,14 @@ struct Read {
 
 impl Read {
     async fn run(&self) -> Result<Value, String> {
+        if self.agent.session_id.is_none() {
+            let params = json!({
+                "window_id": self.agent.window_id,
+                "pane_id": self.agent.pane_id,
+                "lines": TERMINAL_LINES,
+            });
+            return remote_machines::request(&self.machine, "pane.read", params).await;
+        }
         remote_machines::conversation_read(&self.machine, &self.agent, None, self.revision.clone())
             .await
     }
@@ -439,7 +490,7 @@ impl Render for RemoteConversationView {
         let notice: Option<SharedString> = if !self.connected {
             Some(language.text(Message::RemoteSessionsNoticeDisconnected).into())
         } else if self.agent.session_id.is_none() {
-            Some(language.text(Message::RemoteSessionsNoticeNoSession).into())
+            Some(language.text(Message::RemoteSessionsNoticeTerminal).into())
         } else if let Some(error) = &self.error {
             Some(
                 language
@@ -491,9 +542,47 @@ impl Render for RemoteConversationView {
 }
 
 impl RemoteConversationView {
+    fn render_terminal_keys(
+        &self,
+        language: UiLanguage,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        let theme = cx.theme();
+        let (border, danger) = (theme.border, theme.danger);
+        let usable = self.connected && !self.sending;
+        let error: Option<SharedString> = self.input_error.as_ref().map(|error| {
+            language.format(Message::RemoteSessionsInputFailed, &[("error", error)]).into()
+        });
+        v_flex()
+            .flex_shrink_0()
+            .px_4()
+            .py_2()
+            .gap_2()
+            .border_t_1()
+            .border_color(border)
+            .when_some(error, |area, error| {
+                area.child(div().text_xs().text_color(danger).child(error))
+            })
+            .child(h_flex().gap_2().children(TERMINAL_KEYS.into_iter().enumerate().map(
+                |(index, (key, label))| {
+                    Button::new(("remote-terminal-key", index))
+                        .label(label)
+                        .small()
+                        .disabled(!usable)
+                        .on_click(
+                            cx.listener(move |view, _, _, cx| view.send_terminal_key(key, cx)),
+                        )
+                },
+            )))
+            .into_any_element()
+    }
+
     /// The remote's open question (one button per option), the composer, and an
     /// interrupt while the agent works. Only what the last read allows is live.
     fn render_input(&self, language: UiLanguage, cx: &mut Context<Self>) -> gpui::AnyElement {
+        if self.agent.session_id.is_none() {
+            return self.render_terminal_keys(language, cx);
+        }
         let theme = cx.theme();
         let (muted, border, danger) = (theme.muted_foreground, theme.border, theme.danger);
         let usable = self.connected && self.live.identity.is_some() && !self.sending;

@@ -1381,7 +1381,6 @@
     "state_idle": "Idle",
     "disconnected": "Disconnected",
     "notice_disconnected": "SSH disconnected. Showing the last page read; it refreshes after reconnecting.",
-    "notice_no_session": "This session has not reported a session id yet, so its messages cannot be read.",
     "notice_read_failed": "Read failed: {error}",
     "notice_loading": "Reading…",
     "earlier_hidden": "Earlier messages are not shown",
@@ -1397,6 +1396,7 @@
     "new_session": "New session",
     "new_claude": "New Claude session",
     "new_codex": "New Codex session",
-    "start_failed": "Could not start the session: {error}"
+    "start_failed": "Could not start the session: {error}",
+    "notice_terminal": "The session has not started yet (for example, Claude is asking whether to trust the folder). This shows the terminal's last lines; answer with the keys below."
   }
 }

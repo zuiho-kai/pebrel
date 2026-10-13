@@ -33,7 +33,7 @@ struct PendingOpen {
     since: std::time::Instant,
 }
 
-/// The remote's hook needs a moment to report a new session; give up after this.
+/// The remote lists a new agent pane within a snapshot or two; give up after this.
 const PENDING_OPEN_LIMIT: std::time::Duration = std::time::Duration::from_secs(60);
 
 struct MachineRename {
@@ -181,8 +181,8 @@ impl NebulaWorkspace {
         .detach();
     }
 
-    /// Open the session started by `start_remote_agent` once its pane is listed
-    /// with a conversation id. A lost link or a slow hook drops the wait.
+    /// Open the session started by `start_remote_agent` once the machine lists
+    /// its pane. A lost link or a slow listing drops the wait.
     fn open_pending_remote_session(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(pending) = self.remote.pending_open.as_ref() else { return };
         let machine = self.remote.machines.iter().find(|machine| machine.key == pending.key);
@@ -193,9 +193,7 @@ impl NebulaWorkspace {
             return;
         }
         let agent = machine.and_then(|machine| {
-            machine.agents.iter().find(|agent| {
-                (agent.window_id, agent.pane_id) == pending.target && agent.session_id.is_some()
-            })
+            machine.agents.iter().find(|agent| (agent.window_id, agent.pane_id) == pending.target)
         });
         if let Some(agent) = agent.cloned() {
             let key = pending.key.clone();
@@ -293,9 +291,16 @@ impl NebulaWorkspace {
                     .min_w_0()
                     .child(Input::new(&edit.input).xsmall())
                     .into_any_element(),
+                // The hint sits on the name only, so it never covers the `+` menu.
                 None => div()
+                    .id(("remote-machine-title", machine_ix))
                     .min_w_0()
                     .truncate()
+                    .tooltip(|window, cx| {
+                        let hint = crate::gpui_shell::config::ui_language(cx)
+                            .text(crate::i18n::Message::RemoteSessionsRenameHint);
+                        gpui_component::tooltip::Tooltip::new(hint).build(window, cx)
+                    })
                     .text_size(px(label_px * SIDEBAR_TITLE_SCALE))
                     .text_color(muted)
                     .child(SharedString::from(machine.label.clone()))
@@ -323,11 +328,6 @@ impl NebulaWorkspace {
                         this.begin_machine_rename(&rename_key, window, cx);
                     }),
                 )
-                .tooltip(|window, cx| {
-                    let hint = crate::gpui_shell::config::ui_language(cx)
-                        .text(crate::i18n::Message::RemoteSessionsRenameHint);
-                    gpui_component::tooltip::Tooltip::new(hint).build(window, cx)
-                })
                 .child(
                     h_flex().w(px(24.0)).h_full().flex_shrink_0().items_center().child(
                         Icon::new(if collapsed {
