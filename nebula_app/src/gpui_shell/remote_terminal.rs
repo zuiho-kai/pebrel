@@ -858,6 +858,7 @@ impl Render for RemoteTerminalView {
             })
         };
         let view = cx.entity();
+        let resized = view.clone();
         let focus = self.focus_handle.clone();
         v_flex()
             .id("remote-terminal")
@@ -900,7 +901,9 @@ impl Render for RemoteTerminalView {
                             move |bounds, window, _| {
                                 // A new size refits the font on the next frame.
                                 if area.replace(Some(bounds.size)) != Some(bounds.size) {
-                                    window.refresh();
+                                    window.on_next_frame(move |_, cx| {
+                                        resized.update(cx, |_, cx| cx.notify());
+                                    });
                                 }
                             },
                             move |bounds, _, window, cx| {
