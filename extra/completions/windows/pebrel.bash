@@ -34,6 +34,9 @@ _pebrel() {
             pebrel,migrate)
                 cmd="pebrel__migrate"
                 ;;
+            pebrel,mobile-bridge)
+                cmd="pebrel__mobile__bridge"
+                ;;
             pebrel,notify-test)
                 cmd="pebrel__notify__test"
                 ;;
@@ -327,6 +330,9 @@ _pebrel() {
                 ;;
             pebrel__help,migrate)
                 cmd="pebrel__help__migrate"
+                ;;
+            pebrel__help,mobile-bridge)
+                cmd="pebrel__help__mobile__bridge"
                 ;;
             pebrel__help,notify-test)
                 cmd="pebrel__help__notify__test"
@@ -677,7 +683,7 @@ _pebrel() {
 
     case "${cmd}" in
         pebrel)
-            opts="-q -v -e -T -o -h -V --print-events --ref-test --embed --gpui --config-file --daemon --working-directory --shell --hold --command --title --class --option --help --version [DIRECTORY] ctl env window tab pane agent migrate config plugin theme notify-test setup-ai ssh help"
+            opts="-q -v -e -T -o -h -V --print-events --ref-test --embed --gpui --config-file --daemon --working-directory --shell --hold --command --title --class --option --help --version [DIRECTORY] ctl env window tab pane agent migrate config plugin theme notify-test setup-ai mobile-bridge ssh help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2581,7 +2587,7 @@ _pebrel() {
             return 0
             ;;
         pebrel__help)
-            opts="ctl env window tab pane agent migrate config plugin theme notify-test setup-ai ssh help"
+            opts="ctl env window tab pane agent migrate config plugin theme notify-test setup-ai mobile-bridge ssh help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3224,6 +3230,20 @@ _pebrel() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
+        pebrel__help__mobile__bridge)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
         pebrel__help__notify__test)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
@@ -3639,6 +3659,20 @@ _pebrel() {
                     fi
                     return 0
                     ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        pebrel__mobile__bridge)
+            opts="-h --allow-input --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
                 *)
                     COMPREPLY=()
                     ;;

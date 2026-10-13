@@ -1,0 +1,107 @@
+name: Fork packages
+
+# Personal fork packages with the native video background. Uses the repository's
+# own packaging scripts; nothing is published.
+on:
+  push:
+    branches: [remote-sessions]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-packages-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: "1.97.1"
+  PYTHONUTF8: "1"
+  FEATURES: nebula/gpui-shell,nebula/video-background
+
+jobs:
+  windows:
+    if: ${{ github.repository == 'zuiho-kai/pebrel' }}
+    runs-on: windows-2022
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - name: Prepare pinned Windows console runtime
+        shell: pwsh
+        run: ./scripts/prepare-windows-runtime.ps1 -Destination assets/windows/conhost
+      - name: Build release binaries with the video background
+        shell: pwsh
+        run: |
+          cargo build --locked --release -p nebula --bin pebrel -p nebula_hook --bin pebrel-hook --features $env:FEATURES
+          if ($LASTEXITCODE -ne 0) { throw 'Windows build failed' }
+      - name: Package ZIP and installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = python scripts/preview_release.py --print-package-version nebula_app/Cargo.toml
+          # The binaries above were built in this run; the freshness check still applies.
+          ./scripts/package-release.ps1 -Version $version -PackageBrand Pebrel -OutputDirectory dist -TargetDirectory target -SkipBuild -Force
+          ./scripts/build-installer.ps1 -Version $version -PackageBrand Pebrel -OutputDirectory dist -TargetDirectory target -SkipBuild -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pebrel-fork-windows-x64
+          compression-level: 0
+          path: |
+            dist/*.zip
+            dist/*-setup.exe
+          if-no-files-found: error
+
+  macos:
+    if: ${{ github.repository == 'zuiho-kai/pebrel' }}
+    runs-on: macos-26
+    timeout-minutes: 120
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "14.0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - name: Build release binaries with the video background
+        run: cargo build --locked --release -p nebula --bin pebrel -p nebula_hook --bin pebrel-hook --features "$FEATURES"
+      - name: Package ad-hoc signed DMG
+        run: |
+          version="$(python3 scripts/preview_release.py --print-package-version nebula_app/Cargo.toml)"
+          bash scripts/package-macos.sh \
+            --channel stable \
+            --binary target/release/pebrel \
+            --version "$version" \
+            --architecture aarch64 \
+            --build-number "$GITHUB_RUN_NUMBER" \
+            --output-directory dist --force
+      - name: Verify the packaged app
+        run: |
+          dmg="$(ls dist/*.dmg)"
+          mount_point="$RUNNER_TEMP/pebrel-fork"
+          mkdir -p "$mount_point"
+          hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mount_point"
+          trap 'hdiutil detach "$mount_point" -force >/dev/null 2>&1 || true' EXIT
+          codesign --verify --deep --strict --verbose=2 "$mount_point/Pebrel.app"
+          "$mount_point/Pebrel.app/Contents/MacOS/pebrel" help mobile-bridge >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pebrel-fork-macos-arm64
+          compression-level: 0
+          path: dist/*.dmg
+          if-no-files-found: error
