@@ -251,12 +251,18 @@ impl NebulaWorkspace {
             };
             theme.scrollbar_thumb.opacity(alpha)
         };
+        // 按全部行高封顶：行少时槽位贴合内容，下面的远端分组紧跟其后；
+        // 行多时仍由 `flex_1` 收到剩余高度并滚动。上限取自 `tabs.len()`
+        // 而非量到的高度，新增一行时槽位立即放大，不会锁住可见窗口。
+        let content_h = rows_h(self.tabs.len(), self.tab_row_pitch(), tab_row_gap(self.density))
+            .max(tab_row_height(self.density));
 
         div()
             .id("sidebar-tabs-list")
             .flex_1()
             .w_full()
             .min_h_0()
+            .max_h(px(content_h))
             .relative()
             .overflow_hidden()
             .pr(px(TAB_SCROLL_GUTTER))
