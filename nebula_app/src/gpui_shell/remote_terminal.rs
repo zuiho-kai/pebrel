@@ -47,6 +47,8 @@ const DEFAULT_BG: i32 = -258;
 const FIRST_ROWS: usize = 200;
 /// Line height relative to the font size, shared by layout and hit testing.
 const LINE_SCALE: f32 = 1.3;
+/// Most line spacing used to fill height left over by a width-bound grid.
+const MAX_LINE_SCALE: f32 = 2.0;
 /// Bounds of the fitted font size, in pixels.
 const MIN_FONT: f32 = 6.0;
 const MAX_FONT: f32 = 40.0;
@@ -79,6 +81,7 @@ pub struct RemoteTerminalView {
     /// Size of the text area as last painted, and the font size fitted to it.
     area: Rc<RefCell<Option<Size<Pixels>>>>,
     font_px: f32,
+    line_px: f32,
     _poll: Task<()>,
 }
 
@@ -281,23 +284,28 @@ fn prompt_text(text: &str) -> Option<String> {
     (!line.is_empty()).then_some(line)
 }
 
-/// The font size at which a `columns` x `rows` grid fills `area`, given the
-/// cell advance per pixel of font size. Before the first paint or the first
-/// screen the local size stays.
+/// The font size and line height at which a `columns` x `rows` grid fills
+/// `area`, given the cell advance per pixel of font size. The font fits the
+/// tighter side; height left over then goes into line spacing. Before the first
+/// paint or the first screen the local size stays.
 fn fitted_font(
     base: f32,
     advance: f32,
     columns: usize,
     rows: usize,
     area: Option<Size<Pixels>>,
-) -> f32 {
+) -> (f32, f32) {
     let Some(area) = area.filter(|_| columns > 0 && rows > 0 && advance > 0.0) else {
-        return base;
+        return (base, base * LINE_SCALE);
     };
     let by_width = area.width.as_f32() / (columns as f32 * advance);
     let by_height = area.height.as_f32() / (rows as f32 * LINE_SCALE);
-    // Round down to a quarter pixel so shaping never needs a wrap.
-    ((by_width.min(by_height) * 4.0).floor() / 4.0).clamp(MIN_FONT, MAX_FONT)
+    // Round down to a quarter pixel so neither side overflows.
+    let quarter = |value: f32| (value * 4.0).floor() / 4.0;
+    let font = quarter(by_width.min(by_height)).clamp(MIN_FONT, MAX_FONT);
+    let line =
+        quarter(area.height.as_f32() / rows as f32).clamp(font * LINE_SCALE, font * MAX_LINE_SCALE);
+    (font, line)
 }
 
 fn ordered((a, b): (TextPos, TextPos)) -> (TextPos, TextPos) {
@@ -347,6 +355,7 @@ impl RemoteTerminalView {
             cursor_at: None,
             area: Rc::default(),
             font_px: 15.0,
+            line_px: 15.0 * LINE_SCALE,
             _poll: poll,
         }
     }
@@ -424,7 +433,7 @@ impl RemoteTerminalView {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let line = px(self.font_px * LINE_SCALE);
+        let line = px(self.line_px);
         let delta = event.delta.pixel_delta(line).y / line + self.wheel_rest;
         let rows = delta.trunc();
         self.wheel_rest = delta - rows;
@@ -703,7 +712,7 @@ impl RemoteTerminalView {
                     .relative()
                     .w_full()
                     .flex_shrink_0()
-                    .min_h(px(self.font_px * LINE_SCALE))
+                    .min_h(px(self.line_px))
                     .whitespace_nowrap()
                     .child(styled)
                     .child(
@@ -800,7 +809,7 @@ impl EntityInputHandler for RemoteTerminalView {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
-        let line = px(self.font_px * LINE_SCALE);
+        let line = px(self.line_px);
         let origin = self
             .cursor_at
             .filter(|(row, _)| self.painted.borrow().get(*row).is_some_and(Option::is_some))
@@ -846,8 +855,8 @@ impl Render for RemoteTerminalView {
         };
         let advance = sample.width.as_f32() / base;
         let area = *self.area.borrow();
-        self.font_px = fitted_font(base, advance, self.screen.columns, rows, area);
-        let size = self.font_px;
+        (self.font_px, self.line_px) = fitted_font(base, advance, self.screen.columns, rows, area);
+        let (size, line) = (self.font_px, self.line_px);
         let area = self.area.clone();
         let muted = cx.theme().muted_foreground;
         let notice: Option<SharedString> = if !self.connected {
@@ -883,7 +892,7 @@ impl Render for RemoteTerminalView {
             .py_1()
             .font_family(family)
             .text_size(px(size))
-            .line_height(px(size * LINE_SCALE))
+            .line_height(px(line))
             .when_some(notice, |root, notice| {
                 root.child(div().pb_1().text_xs().text_color(muted).child(notice))
             })
@@ -974,13 +983,26 @@ mod tests {
     #[test]
     fn the_font_scales_so_the_whole_remote_grid_fits() {
         let area = |w: f32, h: f32| Some(gpui::size(px(w), px(h)));
+        let font = |w, h| fitted_font(13.0, 0.6, 110, 28, area(w, h)).0;
         // 110 x 28 cells at 0.6 advance: width allows 15, height allows ~16.5.
-        assert_eq!(fitted_font(13.0, 0.6, 110, 28, area(990.0, 600.0)), 15.0);
-        assert_eq!(fitted_font(13.0, 0.6, 110, 28, area(495.0, 600.0)), 7.5);
-        assert_eq!(fitted_font(13.0, 0.6, 110, 28, area(3000.0, 182.0)), 5.0_f32.max(MIN_FONT));
-        assert_eq!(fitted_font(13.0, 0.6, 110, 28, area(9000.0, 9000.0)), MAX_FONT);
-        assert_eq!(fitted_font(13.0, 0.6, 0, 28, area(990.0, 600.0)), 13.0);
-        assert_eq!(fitted_font(13.0, 0.6, 110, 28, None), 13.0);
+        assert_eq!(font(990.0, 600.0), 15.0);
+        assert_eq!(font(495.0, 600.0), 7.5);
+        assert_eq!(font(3000.0, 182.0), MIN_FONT);
+        assert_eq!(font(9000.0, 9000.0), MAX_FONT);
+        assert_eq!(fitted_font(13.0, 0.6, 0, 28, area(990.0, 600.0)), (13.0, 13.0 * LINE_SCALE));
+        assert_eq!(fitted_font(13.0, 0.6, 110, 28, None).0, 13.0);
+    }
+
+    #[test]
+    fn height_left_by_a_width_bound_grid_goes_into_line_spacing() {
+        let area = |w: f32, h: f32| Some(gpui::size(px(w), px(h)));
+        // Width allows 15px; 700px over 28 rows gives 25px lines, under 2x.
+        assert_eq!(fitted_font(13.0, 0.6, 110, 28, area(990.0, 700.0)), (15.0, 25.0));
+        // A very tall view stops at twice the font size.
+        assert_eq!(fitted_font(13.0, 0.6, 110, 28, area(990.0, 5000.0)), (15.0, 30.0));
+        // A height-bound grid keeps the normal spacing and fills the height.
+        let (font, line) = fitted_font(13.0, 0.6, 110, 28, area(3000.0, 546.0));
+        assert_eq!((font, line), (15.0, 19.5));
     }
 
     #[test]
