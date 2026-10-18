@@ -54,6 +54,7 @@ jobs:
           ./scripts/build-installer.ps1 -Version $version -PackageBrand Pebrel -OutputDirectory dist -TargetDirectory target -SkipBuild -Force
       - uses: actions/upload-artifact@v4
         with:
+          retention-days: 1  # 用户 2026-10-18 原话「留1天最多了」
           name: pebrel-fork-windows-x64
           compression-level: 0
           path: |
@@ -101,6 +102,7 @@ jobs:
           "$mount_point/Pebrel.app/Contents/MacOS/pebrel" help mobile-bridge >/dev/null
       - uses: actions/upload-artifact@v4
         with:
+          retention-days: 1  # 用户 2026-10-18 原话「留1天最多了」
           name: pebrel-fork-macos-arm64
           compression-level: 0
           path: dist/*.dmg
