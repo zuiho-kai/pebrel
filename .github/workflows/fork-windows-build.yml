@@ -30,6 +30,7 @@ jobs:
         run: ./scripts/build-windows-product.ps1 -Configuration release -TargetDirectory target
       - uses: actions/upload-artifact@v4
         with:
+          retention-days: 1  # 用户 2026-10-18 原话「留1天最多了」
           name: pebrel-windows-x64
           compression-level: 6
           path: |
